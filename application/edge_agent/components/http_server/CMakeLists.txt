@@ -23,6 +23,7 @@ idf_component_register(
         "http_server_files_api.c"
         "http_server_wechat_api.c"
         "http_server_webim_api.c"
+        "http_server_storage_api.c"
         "http_server_json.c"
         "http_server_utils.c"
     INCLUDE_DIRS
@@ -35,6 +36,7 @@ idf_component_register(
         app_claw
         cap_im_local
         claw_cap
+        espressif__esp_board_manager
         esp_http_server
         heap
         json

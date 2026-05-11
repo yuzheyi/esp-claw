@@ -44,6 +44,9 @@ devices:
     sub_type: sdmmc
     version: default
     config:
+      vfs_config:
+        format_if_mount_failed: true
+        allocation_unit_size: 32768
       sub_config:
         slot: SDMMC_HOST_SLOT_0
         frequency: SDMMC_FREQ_HIGHSPEED

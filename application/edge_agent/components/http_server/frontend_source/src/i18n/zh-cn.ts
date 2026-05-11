@@ -293,4 +293,14 @@ export const zhCn: Dict = {
   setupWechatLoginRequired: '已添加微信，请先完成二维码登录后再继续。',
   setupRestartBanner: '配置已经完成，需重启设备后才能全部生效。',
   setupRestartNow: '立即重启',
+
+  storageNotMounted: '未挂载',
+  storageMount: '挂载',
+  storageUnmount: '卸载',
+  storageFormat: '格式化',
+  storageFormatConfirm: '格式化将清除所有文件，是否继续？',
+  storageMountOk: '存储已挂载',
+  storageUnmountOk: '存储已卸载',
+  storageFormatOk: '存储已格式化',
+  storageOpFailed: '存储操作失败',
 };

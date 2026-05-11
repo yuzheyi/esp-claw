@@ -112,6 +112,26 @@ esp_err_t http_server_resolve_storage_path(const char *relative_path, char *full
     return (written <= 0 || (size_t)written >= full_path_size) ? ESP_ERR_INVALID_SIZE : ESP_OK;
 }
 
+const char *http_server_get_mount_point(const char *storage_id)
+{
+    if (storage_id && strcmp(storage_id, "sdcard") == 0) {
+        return "/sdcard";
+    }
+    /* Default: use configured storage_base_path (fatfs) */
+    return http_server_ctx()->storage_base_path;
+}
+
+esp_err_t http_server_resolve_storage_path_ex(const char *relative_path, const char *storage_id, char *full_path, size_t full_path_size)
+{
+    if (!http_server_path_is_safe(relative_path)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const char *base = http_server_get_mount_point(storage_id);
+    int written = snprintf(full_path, full_path_size, "%s%s", base, relative_path);
+    return (written <= 0 || (size_t)written >= full_path_size) ? ESP_ERR_INVALID_SIZE : ESP_OK;
+}
+
 bool http_server_build_child_relative_path(const char *base_path,
                                            const char *entry_name,
                                            char *out_path,

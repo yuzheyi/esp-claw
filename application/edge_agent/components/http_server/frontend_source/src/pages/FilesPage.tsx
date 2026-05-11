@@ -10,9 +10,14 @@ import {
   deletePath,
   fetchFileContent,
   fetchFileList,
+  fetchStorageDevices,
+  mountStorage,
+  unmountStorage,
+  formatStorage,
   saveFileContent,
   uploadFile,
   type FileEntry,
+  type StorageDevice,
 } from '../api/client';
 import { TabShell } from '../components/layout/TabShell';
 import { PageHeader } from '../components/ui/PageHeader';
@@ -46,8 +51,9 @@ function isEditable(path: string): boolean {
   return EDITABLE_EXT.some((ext) => lower.endsWith(ext));
 }
 
-function downloadHref(path: string): string {
-  return '/files' + path;
+function downloadHref(path: string, storage?: string): string {
+  const prefix = storage === 'sdcard' ? '/sdcard-files' : '/files';
+  return prefix + path;
 }
 
 type EditorState = {
@@ -73,6 +79,8 @@ const initialEditor: EditorState = {
 };
 
 export const FilesPage: Component = () => {
+  const [currentStorage, setCurrentStorage] = createSignal<string>('fatfs');
+  const [storageDevices, setStorageDevices] = createSignal<StorageDevice[]>([]);
   const [currentPath, setCurrentPath] = createSignal('/');
   const [entries, setEntries] = createSignal<FileEntry[]>([]);
   const [error, setError] = createSignal<string | null>(null);
@@ -97,7 +105,8 @@ export const FilesPage: Component = () => {
     setError(null);
     setLoading(true);
     try {
-      const data = await fetchFileList(currentPath());
+      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
+      const data = await fetchFileList(currentPath(), storage);
       setCurrentPath(data.path || '/');
       setEntries(
         (data.entries ?? [])
@@ -111,10 +120,23 @@ export const FilesPage: Component = () => {
     }
   };
 
+  const loadStorageDevices = async () => {
+    try {
+      const devices = await fetchStorageDevices();
+      setStorageDevices(devices);
+    } catch {
+      /* ignore */
+    }
+  };
+
   createEffect(() => {
     void currentPath();
+    void currentStorage();
     loadList();
   });
+
+  /* Load storage device list on mount */
+  loadStorageDevices();
 
   const toggleDevMode = () => {
     if (!devMode()) {
@@ -135,7 +157,8 @@ export const FilesPage: Component = () => {
       return;
     }
     try {
-      await uploadFile(target, file);
+      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
+      await uploadFile(target, file, storage);
       setUploadPath('');
       setChosenFile(null);
       setFileChosenName(null);
@@ -158,7 +181,8 @@ export const FilesPage: Component = () => {
       return;
     }
     try {
-      await createFolder(joinPath(currentPath(), name));
+      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
+      await createFolder(joinPath(currentPath(), name), { storage });
       setNewFolderName('');
       pushToast(t('fileFolderCreated') as string, 'success');
       await loadList();
@@ -174,7 +198,8 @@ export const FilesPage: Component = () => {
     }
     if (!window.confirm(tf('fileDeleteConfirm', { path: entry.path }))) return;
     try {
-      await deletePath(entry.path);
+      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
+      await deletePath(entry.path, storage);
       pushToast(t('fileDeleteComplete') as string, 'success');
       await loadList();
     } catch (err) {
@@ -191,7 +216,8 @@ export const FilesPage: Component = () => {
       readOnly: !devMode(),
     });
     try {
-      const { content } = await fetchFileContent(entry.path);
+      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
+      const { content } = await fetchFileContent(entry.path, { storage });
       setEditor((prev) => ({
         ...prev,
         content,
@@ -233,7 +259,8 @@ export const FilesPage: Component = () => {
     if (!state.path) return;
     setEditor({ ...state, loading: true, error: null });
     try {
-      const { content } = await fetchFileContent(state.path);
+      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
+      const { content } = await fetchFileContent(state.path, { storage });
       setEditor((prev) => ({
         ...prev,
         content,
@@ -254,7 +281,8 @@ export const FilesPage: Component = () => {
     }
     setEditor({ ...state, saving: true, error: null });
     try {
-      await saveFileContent(state.path, state.content);
+      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
+      await saveFileContent(state.path, state.content, storage);
       setEditor((prev) => ({ ...prev, baseline: prev.content, saving: false }));
       pushToast(t('fileEditorSaved') as string, 'success');
       await loadList();
@@ -272,12 +300,81 @@ export const FilesPage: Component = () => {
 
   const goUp = () => setCurrentPath(parentOf(currentPath()));
 
+  const switchStorage = (id: string) => {
+    if (id !== currentStorage()) {
+      setCurrentStorage(id);
+      setCurrentPath('/');
+    }
+  };
+
+  const currentDevice = () => storageDevices().find((d) => d.id === currentStorage());
+
+  const handleMount = async () => {
+    try {
+      await mountStorage(currentStorage());
+      await loadStorageDevices();
+      await loadList();
+      pushToast(t('storageMountOk') as string, 'success');
+    } catch (err) {
+      pushToast(`${t('storageOpFailed')}: ${(err as Error).message}`, 'error');
+    }
+  };
+
+  const handleUnmount = async () => {
+    try {
+      await unmountStorage(currentStorage());
+      await loadStorageDevices();
+      pushToast(t('storageUnmountOk') as string, 'success');
+    } catch (err) {
+      pushToast(`${t('storageOpFailed')}: ${(err as Error).message}`, 'error');
+    }
+  };
+
+  const handleFormat = async () => {
+    if (!window.confirm(t('storageFormatConfirm') as string)) return;
+    try {
+      await formatStorage(currentStorage());
+      await loadStorageDevices();
+      await loadList();
+      pushToast(t('storageFormatOk') as string, 'success');
+    } catch (err) {
+      pushToast(`${t('storageOpFailed')}: ${(err as Error).message}`, 'error');
+    }
+  };
+
   return (
     <TabShell>
       <PageHeader
         title={t('navFiles') as string}
         actions={
           <div class="flex items-center gap-2 flex-wrap">
+            <select
+              class="h-9 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] text-[0.82rem] text-[var(--color-text-primary)]"
+              value={currentStorage()}
+              onChange={(e) => switchStorage(e.currentTarget.value)}
+            >
+              <For each={storageDevices()}>
+                {(dev) => (
+                  <option value={dev.id}>
+                    {dev.name} {dev.mounted ? '' : `(${t('storageNotMounted')})`}
+                  </option>
+                )}
+              </For>
+            </select>
+            <Show when={currentStorage() !== 'fatfs'}>
+              <Show when={currentDevice()?.mounted} fallback={
+                <Button size="sm" variant="secondary" onClick={handleMount}>
+                  {t('storageMount')}
+                </Button>
+              }>
+                <Button size="sm" variant="secondary" onClick={handleUnmount}>
+                  {t('storageUnmount')}
+                </Button>
+                <Button size="sm" variant="danger-ghost" onClick={handleFormat}>
+                  {t('storageFormat')}
+                </Button>
+              </Show>
+            </Show>
             <Button
               size="sm"
               variant="secondary"
@@ -403,7 +500,7 @@ export const FilesPage: Component = () => {
                             when={entry.is_dir}
                             fallback={
                               <a
-                                href={downloadHref(entry.path)}
+                                href={downloadHref(entry.path, currentStorage())}
                                 target="_blank"
                                 rel="noopener"
                                 class="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-white hover:bg-white/[0.05]"

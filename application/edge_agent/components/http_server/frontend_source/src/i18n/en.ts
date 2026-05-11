@@ -302,6 +302,16 @@ export const en = {
   setupWechatLoginRequired: 'WeChat was added. Complete the QR login before continuing.',
   setupRestartBanner: 'Setup is complete. A device restart is required for all changes to take effect.',
   setupRestartNow: 'Restart Now',
+
+  storageNotMounted: 'Not Mounted',
+  storageMount: 'Mount',
+  storageUnmount: 'Unmount',
+  storageFormat: 'Format',
+  storageFormatConfirm: 'Format will erase all files. Continue?',
+  storageMountOk: 'Storage mounted',
+  storageUnmountOk: 'Storage unmounted',
+  storageFormatOk: 'Storage formatted',
+  storageOpFailed: 'Storage operation failed',
 };
 
 export type Dict = typeof en;

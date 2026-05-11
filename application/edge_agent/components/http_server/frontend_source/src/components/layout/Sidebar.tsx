@@ -7,6 +7,7 @@ import {
   MessageSquareCode,
   MessagesSquare,
   Search,
+  Server,
   Settings,
   SquareFunction,
   WifiPen,
@@ -29,6 +30,7 @@ const IconCaps: Component = () => <Blocks class={iconClass} />;
 const IconSkills: Component = () => <SquareFunction class={iconClass} />;
 const IconFiles: Component = () => <Folder class={iconClass} />;
 const IconWebIm: Component = () => <MessagesSquare class={iconClass} />;
+const IconMcp: Component = () => <Server class={iconClass} />;
 
 export type LeafNode = {
   kind: 'leaf';
@@ -43,7 +45,8 @@ export type LeafNode = {
     | 'navCapabilities'
     | 'navLuaModules'
     | 'navFiles'
-    | 'navWebIm';
+    | 'navWebIm'
+    | 'navMcp';
   icon: Component;
 };
 export type GroupNode = {
@@ -74,6 +77,7 @@ export const NAV_TREE: NavNode[] = [
   { kind: 'leaf', id: 'capabilities', labelKey: 'navCapabilities', icon: IconCaps },
   { kind: 'leaf', id: 'skills', labelKey: 'navLuaModules', icon: IconSkills },
   { kind: 'leaf', id: 'files', labelKey: 'navFiles', icon: IconFiles },
+  { kind: 'leaf', id: 'mcp', labelKey: 'navMcp', icon: IconMcp },
 ];
 
 export const LEAF_IDS = collectLeafIds(NAV_TREE);

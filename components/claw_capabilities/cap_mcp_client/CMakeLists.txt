@@ -3,6 +3,7 @@ idf_component_register(
         "src/cap_mcp_client.c"
         "src/cap_mcp_client_core.c"
         "src/cap_mcp_client_sse.c"
+        "src/cap_mcp_client_config.c"
         "src/cap_mcp_discover_core.c"
         "src/cmd_cap_mcp_client.c"
     INCLUDE_DIRS

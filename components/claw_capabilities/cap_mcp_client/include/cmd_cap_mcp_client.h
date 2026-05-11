@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 void register_cap_mcp_client(void);
+void register_cap_mcp_server_commands(void);
 
 #ifdef __cplusplus
 }

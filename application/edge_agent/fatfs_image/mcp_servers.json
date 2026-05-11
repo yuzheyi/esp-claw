@@ -1,0 +1,10 @@
+{
+  "servers": {
+    "smart": {
+      "url": "http://cloud.yujj.top:3000/mcp/$smart",
+      "token": "aMF6i6LZCJpGrXajCYx1Dt9pnomKV2H6",
+      "endpoint": "",
+      "description": "Smart MCP Server with search/describe/call tools"
+    }
+  }
+}

@@ -23,6 +23,7 @@ idf_component_register(
         "http_server_files_api.c"
         "http_server_wechat_api.c"
         "http_server_webim_api.c"
+        "http_server_mcp_api.c"
         "http_server_json.c"
         "http_server_utils.c"
     INCLUDE_DIRS
@@ -39,6 +40,12 @@ idf_component_register(
         heap
         json
 )
+
+if(CONFIG_APP_CLAW_CAP_MCP_CLIENT)
+    target_include_directories(${COMPONENT_LIB} PRIVATE
+        "${CMAKE_CURRENT_LIST_DIR}/../../../../components/claw_capabilities/cap_mcp_client/src"
+        "${CMAKE_CURRENT_LIST_DIR}/../../../../components/claw_capabilities/cap_mcp_client/include")
+endif()
 
 # Rebuild the component whenever the bundled UI asset changes on disk.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${FRONTEND_DIST_HTML_GZ}")

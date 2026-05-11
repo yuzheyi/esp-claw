@@ -715,6 +715,7 @@ static void register_cap_cli_commands(void)
 #endif
 #if CONFIG_APP_CLAW_CAP_MCP_CLIENT
     register_cap_mcp_client();
+    register_cap_mcp_server_commands();
 #endif
 #if CONFIG_APP_CLAW_CAP_MCP_SERVER
     register_cap_mcp_server();

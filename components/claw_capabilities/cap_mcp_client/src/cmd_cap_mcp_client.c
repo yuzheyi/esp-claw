@@ -7,11 +7,15 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "argtable3/argtable3.h"
 #include "cJSON.h"
 #include "claw_cap.h"
 #include "esp_console.h"
+
+#include "cap_mcp_client_config.h"
+#include "cap_mcp_client_internal.h"
 
 static struct {
     struct arg_lit *discover;
@@ -183,4 +187,269 @@ void register_cap_mcp_client(void)
     };
 
     ESP_ERROR_CHECK(esp_console_cmd_register(&mcp_client_cmd));
+}
+
+/* ─── mcp_server helper functions ──────────────────────────────── */
+
+static int mcp_server_list_func(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    const mcp_server_config_t *config = cap_mcp_get_config();
+    if (config->count == 0) {
+        printf("No MCP servers configured.\n");
+        printf("Use 'mcp_server add <name> --url <url> [--token <token>]' to add one.\n");
+        return 0;
+    }
+    printf("+----------------+----------------------------------------------------+----------+\n");
+    printf("| Name           | URL                                                | Endpoint |\n");
+    printf("+----------------+----------------------------------------------------+----------+\n");
+    for (size_t i = 0; i < config->count; i++) {
+        const mcp_server_profile_t *p = &config->profiles[i];
+        printf("| %-14s | %-50s | %-8s |\n",
+               p->name, p->url, p->endpoint[0] ? p->endpoint : "mcp");
+    }
+    printf("+----------------+----------------------------------------------------+----------+\n");
+    printf("Total: %u server(s)\n", (unsigned)config->count);
+    return 0;
+}
+
+static int mcp_server_reload_func(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    mcp_server_config_t *config = cap_mcp_get_config_mutable();
+    mcp_server_config_free(config);
+    esp_err_t err = mcp_server_config_load(MCP_SERVER_CONFIG_PATH, config);
+    if (err != ESP_OK) {
+        printf("Error: Failed to reload config (%s)\n", esp_err_to_name(err));
+        return 1;
+    }
+    err = mcp_server_config_validate(config);
+    if (err != ESP_OK) {
+        printf("Warning: Config validation failed, some servers may be invalid\n");
+    }
+    cap_mcp_rebuild_schemas();
+    printf("Config reloaded. %u server(s) loaded.\n", (unsigned)config->count);
+    return 0;
+}
+
+static int mcp_server_test_func(int argc, char **argv)
+{
+    const char *opt_name = NULL;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) opt_name = argv[i + 1];
+    }
+    if (!opt_name) {
+        printf("Usage: mcp_srv_test --name <name>\n");
+        return 1;
+    }
+    const char *name = opt_name;
+    const mcp_server_config_t *config = cap_mcp_get_config();
+    const mcp_server_profile_t *profile = mcp_server_config_find(config, name);
+    if (!profile) {
+        printf("Error: Server '%s' not found\n", name);
+        return 1;
+    }
+    printf("Testing connection to \"%s\" (%s)...\n", profile->name, profile->url);
+
+    /* Step 1: Initialize handshake */
+    printf("  [1/3] Initialize handshake... ");
+    fflush(stdout);
+    {
+        cJSON *input = cJSON_CreateObject();
+        cJSON_AddStringToObject(input, "server_url", profile->url);
+        cJSON_AddStringToObject(input, "endpoint", profile->endpoint);
+        if (profile->token[0]) {
+            cJSON_AddStringToObject(input, "auth_token", profile->token);
+        }
+        cJSON_AddBoolToObject(input, "initialize", true);
+        char *json_str = cJSON_PrintUnformatted(input);
+        cJSON_Delete(input);
+        cJSON *result = NULL;
+        esp_err_t err = cap_mcp_list_remote_tools(json_str, &result);
+        free(json_str);
+        if (err != ESP_OK) { printf("FAILED (%s)\n", esp_err_to_name(err)); return 1; }
+        const char *err_msg = cJSON_GetStringValue(cJSON_GetObjectItem(result, "error_message"));
+        if (err_msg && err_msg[0]) { printf("FAILED (%s)\n", err_msg); cJSON_Delete(result); return 1; }
+        printf("OK\n");
+        cJSON_Delete(result);
+    }
+
+    /* Step 2: List tools */
+    printf("  [2/3] List tools... ");
+    fflush(stdout);
+    {
+        cJSON *input = cJSON_CreateObject();
+        cJSON_AddStringToObject(input, "server_url", profile->url);
+        cJSON_AddStringToObject(input, "endpoint", profile->endpoint);
+        if (profile->token[0]) {
+            cJSON_AddStringToObject(input, "auth_token", profile->token);
+        }
+        char *json_str = cJSON_PrintUnformatted(input);
+        cJSON_Delete(input);
+        cJSON *result = NULL;
+        esp_err_t err = cap_mcp_list_remote_tools(json_str, &result);
+        free(json_str);
+        if (err != ESP_OK) { printf("FAILED (%s)\n", esp_err_to_name(err)); return 1; }
+        const char *err_msg = cJSON_GetStringValue(cJSON_GetObjectItem(result, "error_message"));
+        if (err_msg && err_msg[0]) { printf("FAILED (%s)\n", err_msg); cJSON_Delete(result); return 1; }
+        cJSON *tools = cJSON_GetObjectItem(result, "tools");
+        size_t tool_count = cJSON_IsArray(tools) ? cJSON_GetArraySize(tools) : 0;
+        printf("OK (%u tool(s) found)\n", (unsigned)tool_count);
+        cJSON_Delete(result);
+    }
+
+    printf("  [3/3] Cleanup... OK\n");
+    printf("Connection test passed!\n");
+    return 0;
+}
+
+static int mcp_server_export_func(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    const mcp_server_config_t *config = cap_mcp_get_config();
+    cJSON *root = cJSON_CreateObject();
+    cJSON *servers = cJSON_CreateObject();
+    cJSON_AddItemToObject(root, "servers", servers);
+    for (size_t i = 0; i < config->count; i++) {
+        const mcp_server_profile_t *p = &config->profiles[i];
+        cJSON *server = cJSON_CreateObject();
+        cJSON_AddStringToObject(server, "url", p->url);
+        if (p->token[0]) { cJSON_AddStringToObject(server, "token", "***"); }
+        if (p->endpoint[0] && strcmp(p->endpoint, CAP_MCP_DEFAULT_ENDPOINT) != 0) {
+            cJSON_AddStringToObject(server, "endpoint", p->endpoint);
+        }
+        if (p->description[0]) { cJSON_AddStringToObject(server, "description", p->description); }
+        cJSON_AddItemToObject(servers, p->name, server);
+    }
+    char *json_str = cJSON_Print(root);
+    cJSON_Delete(root);
+    if (json_str) { printf("%s\n", json_str); free(json_str); }
+    return 0;
+}
+
+/* ─── mcp_srv_add: manual argv parsing ─────────────────────────── */
+
+static int mcp_server_add_func(int argc, char **argv)
+{
+    const char *opt_name = NULL, *opt_url = NULL, *opt_token = NULL;
+    const char *opt_endpoint = NULL, *opt_desc = NULL;
+
+    for (int i = 1; i < argc - 1; i++) {
+        if (strcmp(argv[i], "--name") == 0) opt_name = argv[i + 1];
+        else if (strcmp(argv[i], "--url") == 0) opt_url = argv[i + 1];
+        else if (strcmp(argv[i], "--token") == 0) opt_token = argv[i + 1];
+        else if (strcmp(argv[i], "--endpoint") == 0) opt_endpoint = argv[i + 1];
+        else if (strcmp(argv[i], "--description") == 0) opt_desc = argv[i + 1];
+    }
+    if (!opt_name || !opt_url) {
+        printf("Usage: mcp_srv_add --name <name> --url <url> [--token <token>] [--endpoint <ep>] [--description <desc>]\n");
+        return 1;
+    }
+
+    mcp_server_profile_t profile = {0};
+    strlcpy(profile.name, opt_name, sizeof(profile.name));
+    strlcpy(profile.url, opt_url, sizeof(profile.url));
+    if (opt_token) strlcpy(profile.token, opt_token, sizeof(profile.token));
+    profile.endpoint[0] = '\0';  /* empty = use URL as-is, no path appended */
+    if (opt_endpoint) strlcpy(profile.endpoint, opt_endpoint, sizeof(profile.endpoint));
+    if (opt_desc) strlcpy(profile.description, opt_desc, sizeof(profile.description));
+
+    if (strncmp(profile.url, "http://", 7) != 0 && strncmp(profile.url, "https://", 8) != 0) {
+        printf("Error: URL must start with http:// or https://\n"); return 1;
+    }
+
+    mcp_server_config_t *config = cap_mcp_get_config_mutable();
+    esp_err_t err = mcp_server_config_add(config, &profile);
+    if (err != ESP_OK) { printf("Error: Failed to add server (%s)\n", esp_err_to_name(err)); return 1; }
+
+    err = mcp_server_config_save(MCP_SERVER_CONFIG_PATH, config);
+    if (err != ESP_OK) printf("Warning: Failed to save config (%s)\n", esp_err_to_name(err));
+
+    cap_mcp_rebuild_schemas();
+    printf("Server '%s' added successfully.\n", profile.name);
+    return 0;
+}
+
+/* ─── mcp_srv_remove: manual argv parsing ──────────────────────── */
+
+static int mcp_server_remove_func(int argc, char **argv)
+{
+    const char *opt_name = NULL;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--name") == 0 && i + 1 < argc) opt_name = argv[i + 1];
+    }
+    if (!opt_name) {
+        printf("Usage: mcp_srv_remove --name <name>\n"); return 1;
+    }
+
+    mcp_server_config_t *config = cap_mcp_get_config_mutable();
+    esp_err_t err = mcp_server_config_remove(config, opt_name);
+    if (err != ESP_OK) { printf("Error: Server '%s' not found\n", opt_name); return 1; }
+
+    err = mcp_server_config_save(MCP_SERVER_CONFIG_PATH, config);
+    if (err != ESP_OK) printf("Warning: Failed to save config (%s)\n", esp_err_to_name(err));
+
+    cap_mcp_rebuild_schemas();
+    printf("Server '%s' removed.\n", opt_name);
+    return 0;
+}
+
+void register_cap_mcp_server_commands(void)
+{
+    /* mcp_srv_list */
+    const esp_console_cmd_t list_cmd = {
+        .command = "mcp_srv_list",
+        .help = "List configured MCP servers",
+        .func = mcp_server_list_func,
+        .argtable = NULL,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&list_cmd));
+
+    /* mcp_srv_add --name <name> --url <url> [--token <token>] */
+    const esp_console_cmd_t add_cmd = {
+        .command = "mcp_srv_add",
+        .help = "Add an MCP server.\n"
+        " mcp_srv_add --name <name> --url <url> [--token <token>] [--endpoint <ep>] [--description <desc>]",
+        .func = mcp_server_add_func,
+        .argtable = NULL,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&add_cmd));
+
+    /* mcp_srv_remove --name <name> */
+    const esp_console_cmd_t remove_cmd = {
+        .command = "mcp_srv_remove",
+        .help = "Remove an MCP server.\n"
+        " mcp_srv_remove --name <name>",
+        .func = mcp_server_remove_func,
+        .argtable = NULL,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&remove_cmd));
+
+    /* mcp_srv_reload */
+    const esp_console_cmd_t reload_cmd = {
+        .command = "mcp_srv_reload",
+        .help = "Reload MCP server config from file",
+        .func = mcp_server_reload_func,
+        .argtable = NULL,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&reload_cmd));
+
+    /* mcp_srv_test --name <name> */
+    const esp_console_cmd_t test_cmd = {
+        .command = "mcp_srv_test",
+        .help = "Test connection to an MCP server.\n"
+        " mcp_srv_test --name <name>",
+        .func = mcp_server_test_func,
+        .argtable = NULL,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&test_cmd));
+
+    /* mcp_srv_export */
+    const esp_console_cmd_t export_cmd = {
+        .command = "mcp_srv_export",
+        .help = "Export MCP server config (tokens hidden)",
+        .func = mcp_server_export_func,
+        .argtable = NULL,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&export_cmd));
 }

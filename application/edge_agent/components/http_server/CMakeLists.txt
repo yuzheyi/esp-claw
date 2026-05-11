@@ -38,6 +38,7 @@ idf_component_register(
         claw_cap
         espressif__esp_board_manager
         esp_http_server
+        fatfs
         heap
         json
 )

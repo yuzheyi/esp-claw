@@ -4,6 +4,41 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "http_server_priv.h"
+#include <dirent.h>
+#include "esp_vfs_fat.h"
+
+#define SDCARD_MOUNT_POINT  "/sdcard"
+
+static void add_sdcard_status(cJSON *root)
+{
+    DIR *dir = opendir(SDCARD_MOUNT_POINT);
+    bool mounted = (dir != NULL);
+    if (dir) {
+        closedir(dir);
+    }
+
+    cJSON_AddBoolToObject(root, "sdcard_mounted", mounted);
+
+    if (mounted) {
+        uint64_t total_bytes = 0;
+        uint64_t free_bytes = 0;
+        esp_err_t err = esp_vfs_fat_info(SDCARD_MOUNT_POINT, &total_bytes, &free_bytes);
+        if (err == ESP_OK) {
+            cJSON_AddNumberToObject(root, "sdcard_total_bytes", (double)total_bytes);
+            cJSON_AddNumberToObject(root, "sdcard_free_bytes", (double)free_bytes);
+        } else {
+            cJSON_AddNumberToObject(root, "sdcard_total_bytes", 0);
+            cJSON_AddNumberToObject(root, "sdcard_free_bytes", 0);
+        }
+        http_server_json_add_string(root, "sdcard_mount_point", SDCARD_MOUNT_POINT);
+        http_server_json_add_string(root, "sdcard_error", "");
+    } else {
+        cJSON_AddNumberToObject(root, "sdcard_total_bytes", 0);
+        cJSON_AddNumberToObject(root, "sdcard_free_bytes", 0);
+        http_server_json_add_string(root, "sdcard_mount_point", "");
+        http_server_json_add_string(root, "sdcard_error", "Not mounted");
+    }
+}
 
 static esp_err_t status_handler(httpd_req_t *req)
 {
@@ -27,6 +62,9 @@ static esp_err_t status_handler(httpd_req_t *req)
     http_server_json_add_string(root, "ap_ssid", status.ap_ssid);
     http_server_json_add_string(root, "ap_ip", status.ap_ip);
     http_server_json_add_string(root, "wifi_mode", status.wifi_mode);
+
+    add_sdcard_status(root);
+
     return http_server_send_json_response(req, root);
 }
 

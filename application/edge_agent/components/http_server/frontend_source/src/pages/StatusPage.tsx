@@ -27,6 +27,88 @@ const InfoRow: Component<{ label: string; value?: string; mono?: boolean }> = (p
   );
 };
 
+/** Format bytes to human-readable string (e.g. "14.2 GB") */
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const val = bytes / Math.pow(1024, i);
+  return `${val.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+const SdCardStatus: Component = () => {
+  const status = appStatus;
+  const mounted = () => status()?.sdcard_mounted ?? false;
+  const totalBytes = () => status()?.sdcard_total_bytes ?? 0;
+  const freeBytes = () => status()?.sdcard_free_bytes ?? 0;
+  const usedBytes = () => totalBytes() - freeBytes();
+  const usagePercent = () => totalBytes() > 0 ? Math.round((usedBytes() / totalBytes()) * 100) : 0;
+  const mountPoint = () => status()?.sdcard_mount_point ?? '';
+  const error = () => status()?.sdcard_error ?? '';
+
+  return (
+    <div class="pt-2 space-y-2">
+      {/* Mount status indicator */}
+      <div class="flex items-center justify-between py-2 px-3 rounded-[var(--radius-sm)] bg-white/[0.02] border border-transparent hover:border-[var(--color-border-subtle)] gap-3">
+        <span class="text-[0.78rem] uppercase tracking-wider text-[var(--color-text-muted)] font-semibold">
+          {t('sysInfoSdCardStatus') as string}
+        </span>
+        <span class="flex items-center gap-2 text-[0.88rem]">
+          <span
+            class={`inline-block w-2 h-2 rounded-full ${mounted() ? 'bg-green-400' : 'bg-red-400'}`}
+          />
+          <span class={mounted() ? 'text-green-400' : 'text-red-400'}>
+            {mounted() ? (t('sysInfoSdCardMounted') as string) : (t('sysInfoSdCardNotMounted') as string)}
+          </span>
+        </span>
+      </div>
+
+      {/* Capacity info — only shown when mounted */}
+      {mounted() && (
+        <>
+          <InfoRow label={t('sysInfoSdCardMountPoint') as string} value={mountPoint()} mono />
+          <InfoRow label={t('sysInfoSdCardTotal') as string} value={formatBytes(totalBytes())} mono />
+          <InfoRow label={t('sysInfoSdCardUsed') as string} value={formatBytes(usedBytes())} mono />
+          <InfoRow label={t('sysInfoSdCardFree') as string} value={formatBytes(freeBytes())} mono />
+
+          {/* Usage bar */}
+          <div class="px-3 py-2">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[0.72rem] uppercase tracking-wider text-[var(--color-text-muted)] font-semibold">
+                {t('sysInfoSdCardUsage') as string}
+              </span>
+              <span class="text-[0.78rem] text-[var(--color-text-secondary)] font-mono">
+                {usagePercent()}%
+              </span>
+            </div>
+            <div class="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+              <div
+                class="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${usagePercent()}%`,
+                  'background-color':
+                    usagePercent() > 90
+                      ? 'var(--color-danger, #ef4444)'
+                      : usagePercent() > 70
+                        ? 'var(--color-warning, #f59e0b)'
+                        : 'var(--color-success, #22c55e)',
+                }}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Error message — shown when not mounted */}
+      {!mounted() && error() && (
+        <div class="px-3 py-2 rounded-[var(--radius-sm)] bg-red-500/5 border border-red-500/20">
+          <span class="text-[0.82rem] text-red-400">{error()}</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const StatusPage: Component<{ onRestartRequest: () => void }> = (props) => {
   const [confirmOpen, setConfirmOpen] = createSignal(false);
 
@@ -82,6 +164,9 @@ export const StatusPage: Component<{ onRestartRequest: () => void }> = (props) =
               mono
             />
           </div>
+        </StaticConfigBlock>
+        <StaticConfigBlock title={t('sectionStatusSdCard') as string}>
+          <SdCardStatus />
         </StaticConfigBlock>
       </div>
       <RestartConfirmModal

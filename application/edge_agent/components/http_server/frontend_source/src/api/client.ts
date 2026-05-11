@@ -90,6 +90,11 @@ export type StatusInfo = {
   ap_ip: string;
   wifi_mode: string;
   storage_base_path: string;
+  sdcard_mounted: boolean;
+  sdcard_mount_point: string;
+  sdcard_total_bytes: number;
+  sdcard_free_bytes: number;
+  sdcard_error: string;
 };
 
 export type CapabilityItem = {

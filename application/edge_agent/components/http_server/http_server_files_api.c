@@ -100,10 +100,11 @@ static esp_err_t files_list_handler(httpd_req_t *req)
     return http_server_send_json_response(req, root);
 }
 
-static esp_err_t file_download_handler(httpd_req_t *req)
+static esp_err_t stream_file_download(httpd_req_t *req, const char *uri_prefix, const char *default_storage_id)
 {
-    const char *storage_id = http_server_get_storage_id(req);
-    const char *relative_path = req->uri + strlen("/files");
+    const char *storage_id = default_storage_id ? default_storage_id : http_server_get_storage_id(req);
+    const char *relative_path = req->uri + strlen(uri_prefix);
+
     if (!http_server_path_is_safe(relative_path)) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
     }
@@ -130,8 +131,13 @@ static esp_err_t file_download_handler(httpd_req_t *req)
         return ESP_ERR_NO_MEM;
     }
 
+    // Content-Length lets browsers show download progress
+    char content_length[32];
+    snprintf(content_length, sizeof(content_length), "%ld", (long)st.st_size);
     httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Content-Length", content_length);
     httpd_resp_set_hdr(req, "Cache-Control", "no-store, max-age=0");
+
     while (!feof(file)) {
         size_t read_bytes = fread(scratch, 1, HTTP_SERVER_SCRATCH_SIZE, file);
         if (read_bytes > 0 && httpd_resp_send_chunk(req, scratch, read_bytes) != ESP_OK) {
@@ -144,6 +150,11 @@ static esp_err_t file_download_handler(httpd_req_t *req)
     free(scratch);
     fclose(file);
     return httpd_resp_send_chunk(req, NULL, 0);
+}
+
+static esp_err_t file_download_handler(httpd_req_t *req)
+{
+    return stream_file_download(req, "/files", NULL);
 }
 
 static esp_err_t files_upload_handler(httpd_req_t *req)
@@ -279,47 +290,7 @@ static esp_err_t files_mkdir_handler(httpd_req_t *req)
 /* GET /sdcard-files/... — SD card file download */
 static esp_err_t sdcard_file_download_handler(httpd_req_t *req)
 {
-    const char *relative_path = req->uri + strlen("/sdcard-files");
-    if (!http_server_path_is_safe(relative_path)) {
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
-    }
-
-    char full_path[HTTP_SERVER_PATH_MAX];
-    if (http_server_resolve_storage_path_ex(relative_path, "sdcard", full_path, sizeof(full_path)) != ESP_OK) {
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
-    }
-
-    struct stat st = {0};
-    if (stat(full_path, &st) != 0 || S_ISDIR(st.st_mode)) {
-        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-    }
-
-    FILE *file = fopen(full_path, "rb");
-    if (!file) {
-        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
-    }
-
-    char *scratch = http_server_alloc_scratch_buffer();
-    if (!scratch) {
-        fclose(file);
-        httpd_resp_send_500(req);
-        return ESP_ERR_NO_MEM;
-    }
-
-    httpd_resp_set_type(req, "application/octet-stream");
-    httpd_resp_set_hdr(req, "Cache-Control", "no-store, max-age=0");
-    while (!feof(file)) {
-        size_t read_bytes = fread(scratch, 1, HTTP_SERVER_SCRATCH_SIZE, file);
-        if (read_bytes > 0 && httpd_resp_send_chunk(req, scratch, read_bytes) != ESP_OK) {
-            free(scratch);
-            fclose(file);
-            return ESP_FAIL;
-        }
-    }
-
-    free(scratch);
-    fclose(file);
-    return httpd_resp_send_chunk(req, NULL, 0);
+    return stream_file_download(req, "/sdcard-files", "sdcard");
 }
 
 esp_err_t http_server_register_files_routes(httpd_handle_t server)

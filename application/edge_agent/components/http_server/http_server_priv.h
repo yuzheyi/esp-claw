@@ -14,7 +14,7 @@
 #include "http_server.h"
 
 #define HTTP_SERVER_CTRL_PORT         32769
-#define HTTP_SERVER_SCRATCH_SIZE      4096
+#define HTTP_SERVER_SCRATCH_SIZE      16384
 #define HTTP_SERVER_PATH_MAX          256
 #define HTTP_SERVER_UPLOAD_MAX_SIZE   (16 * 1024 * 1024)  // 16MB
 

@@ -303,6 +303,9 @@ export const zhCn: Dict = {
   setupRestartBanner: '配置已经完成，需重启设备后才能全部生效。',
   setupRestartNow: '立即重启',
 
+  storageFree: '剩余',
+  storageSpaceExceeded: '文件大小 ({fileSize}) 超过剩余空间 ({freeSpace})',
+
   storageNotMounted: '未挂载',
   storageMount: '挂载',
   storageUnmount: '卸载',
@@ -312,4 +315,6 @@ export const zhCn: Dict = {
   storageUnmountOk: '存储已卸载',
   storageFormatOk: '存储已格式化',
   storageOpFailed: '存储操作失败',
+
+  fileSelectStorage: '请先进入一个存储设备',
 };

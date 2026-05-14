@@ -4,7 +4,7 @@ export const en = {
   pageSubtitle:
     'View system operation basic information and status',
 
-  statusLoading: 'Loading…',
+  statusLoading: 'Loading鈥?,
   statusOnline: 'Wi-Fi Connected',
   statusOffline: 'Wi-Fi Offline',
   statusApActive: 'Captive Portal Active',
@@ -26,19 +26,20 @@ export const en = {
   navLuaModules: 'Lua Modules',
   navFiles: 'Files',
   navWebIm: 'Web Chat',
+  navMcp: 'MCP Servers',
 
   webimDesc: 'Interact with ESP-Claw in real time via WebSocket.',
   webimSend: 'Send',
   webimOnline: 'Online',
-  webimPlaceholder: 'Message…',
+  webimPlaceholder: 'Message鈥?,
   webimAttach: 'Image',
   webimNoBind:
     'Web IM is not connected yet (device still starting or local IM disabled). Wait for the agent to finish booting.',
   webimEmpty: 'No messages',
   webimPendingFiles: 'Attachments pending send',
-  webimUploaded: 'Image uploaded — click Send to post.',
+  webimUploaded: 'Image uploaded 鈥?click Send to post.',
   webimSendShortcut: 'Ctrl+Enter to send',
-  webimWsReconnecting: 'Live channel reconnecting…',
+  webimWsReconnecting: 'Live channel reconnecting鈥?,
 
   unsavedIndicator: 'Unsaved',
   unsavedConfirmLeave:
@@ -99,9 +100,9 @@ export const en = {
   restartConfirmCancel: 'Cancel',
   restartConfirmAction: 'Restart',
   restartOverlayTitle: 'Waiting For Device Restart',
-  restartOverlayRequesting: 'Sending restart request…',
-  restartOverlayCooldown: 'The device is shutting down and preparing to reboot…',
-  restartOverlayPolling: 'Polling device status and waiting for it to come back online…',
+  restartOverlayRequesting: 'Sending restart request鈥?,
+  restartOverlayCooldown: 'The device is shutting down and preparing to reboot鈥?,
+  restartOverlayPolling: 'Polling device status and waiting for it to come back online鈥?,
   restartOverlayHint: 'The page will automatically check the restart status. No manual refresh is needed.',
   restartOverlayErrorTitle: 'The device did not come back online in time',
   restartOverlayTimeout: 'The device did not come back online within 30 seconds. Check network reachability or serial logs.',
@@ -174,7 +175,7 @@ export const en = {
   wechatLoginStatusPrefix: 'Status: ',
   wechatLoginCancelledMsg: 'WeChat login cancelled.',
   wechatLoginNote:
-    'Scan the QR code with WeChat. Credentials will be filled in Advanced settings below — click Save to store them.',
+    'Scan the QR code with WeChat. Credentials will be filled in Advanced settings below 鈥?click Save to store them.',
   wechatLoginOpenLink: 'Open login link',
 
   sectionSearch: 'Search (Optional)',
@@ -182,8 +183,6 @@ export const en = {
     'If set, ESP-Claw can search online. Tip: Built-in weather skill also relies on online search.',
   searchBraveKey: 'Brave Search API Key',
   searchTavilyKey: 'Tavily API Key',
-  searchHttpAllowlist: 'HTTP allowlist (domains/IP, comma-separated)',
-  searchHttpAllowlistPlaceholder: 'api.example.com,*.example.org,203.0.113.10',
 
   sectionCapabilities: 'Capability Groups',
   capabilitiesDescription:
@@ -191,13 +190,13 @@ export const en = {
   capFilterAll: 'All',
   capFilterEnabled: 'Enabled only',
   capFilterLlm: 'LLM-visible only',
-  capSearchPlaceholder: 'Search capabilities…',
+  capSearchPlaceholder: 'Search capabilities鈥?,
   capSummary: '{enabled} enabled / {llm} LLM-visible / {total} total',
   capabilitySelectAll: 'Select All',
   capabilityClearAll: 'Clear All',
   capabilityLlmDefaults: 'Restore LLM Defaults',
   capabilityLlmClear: 'Clear LLM',
-  capabilityLoading: 'Loading capabilities…',
+  capabilityLoading: 'Loading capabilities鈥?,
   capabilityLoadError: 'Failed to load capabilities',
   capabilityNameCol: 'Capability',
   capabilityEnabled: 'Enabled',
@@ -207,11 +206,11 @@ export const en = {
   sectionLuaModules: 'Lua Modules',
   luaModulesDescription:
     'Select which compiled Lua modules are registered when cap_lua starts. Changes take effect after restart.',
-  luaModulesSearchPlaceholder: 'Search modules…',
+  luaModulesSearchPlaceholder: 'Search modules鈥?,
   luaModulesSummary: '{enabled} enabled / {total} total',
   luaModulesSelectAll: 'Select All',
   luaModulesClearAll: 'Clear All',
-  luaModulesLoading: 'Loading Lua modules…',
+  luaModulesLoading: 'Loading Lua modules鈥?,
   luaModulesLoadError: 'Failed to load Lua modules',
   luaModulesCapabilityRequired:
     'Enable the cap_lua capability group before Lua module selection takes effect.',
@@ -223,7 +222,7 @@ export const en = {
   timezone: 'Timezone',
   timezonePlaceholder: 'e.g. CST-8 (Beijing) or UTC0',
   timezoneHelp:
-    "POSIX TZ string only. The sign is INVERTED relative to common UTC notation: Beijing (UTC+8) must be written as 'CST-8'; New York (UTC-5) is 'EST5'. Names like 'Asia/Shanghai' will NOT work — please convert manually.",
+    "POSIX TZ string only. The sign is INVERTED relative to common UTC notation: Beijing (UTC+8) must be written as 'CST-8'; New York (UTC-5) is 'EST5'. Names like 'Asia/Shanghai' will NOT work 鈥?please convert manually.",
 
   memoryTitle: 'Memory Files',
   memoryDescription: 'Manage the device memory files.',
@@ -312,6 +311,9 @@ export const en = {
   setupRestartBanner: 'Setup is complete. A device restart is required for all changes to take effect.',
   setupRestartNow: 'Restart Now',
 
+  storageFree: 'Free',
+  storageSpaceExceeded: 'File size ({fileSize}) exceeds available space ({freeSpace})',
+
   storageNotMounted: 'Not Mounted',
   storageMount: 'Mount',
   storageUnmount: 'Unmount',
@@ -321,6 +323,8 @@ export const en = {
   storageUnmountOk: 'Storage unmounted',
   storageFormatOk: 'Storage formatted',
   storageOpFailed: 'Storage operation failed',
+
+  fileSelectStorage: 'Please enter a storage device first',
 };
 
 export type Dict = typeof en;

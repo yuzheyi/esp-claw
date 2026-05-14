@@ -13,6 +13,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "esp_vfs_fat.h"
+
 /* Helper: read optional ?storage= query param (defaults to NULL = fatfs) */
 static void get_storage_id(httpd_req_t *req, char *buf, size_t buf_size)
 {
@@ -250,6 +252,21 @@ static esp_err_t files_upload_handler(httpd_req_t *req)
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Parent directory not found");
     }
 
+    /* Check available storage space before accepting upload */
+    const char *mount_point = http_server_get_mount_point(storage_id_or_null(storage_id));
+    uint64_t total_bytes = 0, free_bytes = 0;
+    esp_err_t space_err = esp_vfs_fat_info(mount_point, &total_bytes, &free_bytes);
+    if (space_err == ESP_OK && (uint64_t)req->content_len > free_bytes) {
+        httpd_resp_set_status(req, "413 Payload Too Large");
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-store, max-age=0");
+        char json_buf[160];
+        snprintf(json_buf, sizeof(json_buf),
+                 "{\"ok\":false,\"error\":\"Insufficient storage\",\"need\":%llu,\"available\":%llu}",
+                 (unsigned long long)req->content_len, (unsigned long long)free_bytes);
+        return httpd_resp_sendstr(req, json_buf);
+    }
+
     FILE *file = fopen(full_path, "wb");
     if (!file) {
         return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to create file");
@@ -263,7 +280,11 @@ static esp_err_t files_upload_handler(httpd_req_t *req)
         return ESP_ERR_NO_MEM;
     }
 
-    int remaining = req->content_len;
+    const int content_len = req->content_len;
+    int remaining = content_len;
+    int total_received = 0;
+    int last_progress_sent = 0;
+
     while (remaining > 0) {
         int chunk = remaining > HTTP_SERVER_SCRATCH_SIZE ? HTTP_SERVER_SCRATCH_SIZE : remaining;
         int received = httpd_req_recv(req, scratch, chunk);
@@ -274,6 +295,28 @@ static esp_err_t files_upload_handler(httpd_req_t *req)
             return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Upload failed");
         }
         remaining -= received;
+        total_received += received;
+
+        /* Broadcast upload progress via WebSocket every 64 KB */
+        if (total_received - last_progress_sent >= 65536) {
+            char progress_msg[512];
+            snprintf(progress_msg, sizeof(progress_msg),
+                     "{\"type\":\"upload_progress\",\"path\":\"%s\",\"total\":%d,\"received\":%d,\"storage\":\"%s\"}",
+                     relative_path, content_len, total_received,
+                     storage_id[0] ? storage_id : "fatfs");
+            webim_ws_broadcast_json(progress_msg);
+            last_progress_sent = total_received;
+        }
+    }
+
+    /* Send 100 % progress */
+    {
+        char progress_msg[512];
+        snprintf(progress_msg, sizeof(progress_msg),
+                 "{\"type\":\"upload_progress\",\"path\":\"%s\",\"total\":%d,\"received\":%d,\"storage\":\"%s\"}",
+                 relative_path, content_len, total_received,
+                 storage_id[0] ? storage_id : "fatfs");
+        webim_ws_broadcast_json(progress_msg);
     }
 
     free(scratch);

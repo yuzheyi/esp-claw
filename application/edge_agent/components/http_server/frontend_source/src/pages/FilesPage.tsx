@@ -1,9 +1,12 @@
 import {
+  ChevronRight,
   FolderOpen,
+  HardDrive,
   HardDriveDownload,
   Trash2,
+  Usb,
 } from 'lucide-solid';
-import { createEffect, createSignal, For, onCleanup, Show, type Component } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type Component } from 'solid-js';
 import { t, tf } from '../i18n';
 import {
   createFolder,
@@ -38,6 +41,22 @@ function parentOf(path: string): string {
 
 function joinPath(base: string, name: string): string {
   return base === '/' ? '/' + name : base + '/' + name;
+}
+
+/** Parse virtualPath into (storage | null) and real API path. */
+function getStorageAndPath(virtualPath: string): { storage: string | undefined; realPath: string } {
+  if (virtualPath === '/' || virtualPath === '') {
+    return { storage: undefined, realPath: '/' };
+  }
+  const seg = virtualPath.split('/')[1]; // first segment after /
+  if (seg === 'fatfs') {
+    return { storage: 'fatfs', realPath: virtualPath.slice('/fatfs'.length) || '/' };
+  }
+  if (seg === 'sdcard') {
+    return { storage: 'sdcard', realPath: virtualPath.slice('/sdcard'.length) || '/' };
+  }
+  // unknown prefix → fall back to virtual root
+  return { storage: undefined, realPath: '/' };
 }
 
 function humanSize(bytes: number): string {
@@ -79,9 +98,9 @@ const initialEditor: EditorState = {
 };
 
 export const FilesPage: Component = () => {
-  const [currentStorage, setCurrentStorage] = createSignal<string>('fatfs');
+  // Unified virtual path: "/" = virtual root, "/fatfs" = fatfs root, "/fatfs/sub" = fatfs subdir
+  const [virtualPath, setVirtualPath] = createSignal('/');
   const [storageDevices, setStorageDevices] = createSignal<StorageDevice[]>([]);
-  const [currentPath, setCurrentPath] = createSignal('/');
   const [entries, setEntries] = createSignal<FileEntry[]>([]);
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
@@ -93,6 +112,18 @@ export const FilesPage: Component = () => {
   const [chosenFile, setChosenFile] = createSignal<File | null>(null);
 
   const [editor, setEditor] = createSignal<EditorState>(initialEditor);
+  const [uploadProgress, setUploadProgress] = createSignal<{
+    name: string;
+    loaded: number;
+    total: number;
+  } | null>(null);
+
+  // Derived from virtualPath
+  const parsedPath = createMemo(() => getStorageAndPath(virtualPath()));
+  const isVirtualRoot = createMemo(() => parsedPath().storage === undefined);
+  const currentStorage = createMemo(() => parsedPath().storage);
+  const currentRealPath = createMemo(() => parsedPath().realPath);
+  const pathSegments = createMemo(() => virtualPath().split('/').filter(Boolean));
 
   const dirtyEditor = () => editor().open && editor().content !== editor().baseline;
 
@@ -105,9 +136,15 @@ export const FilesPage: Component = () => {
     setError(null);
     setLoading(true);
     try {
-      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
-      const data = await fetchFileList(currentPath(), storage);
-      setCurrentPath(data.path || '/');
+      const { storage, realPath } = parsedPath();
+      if (storage === undefined) {
+        // Virtual root – no files to list
+        setEntries([]);
+        setLoading(false);
+        return;
+      }
+      const storageParam = storage !== 'fatfs' ? storage : undefined;
+      const data = await fetchFileList(realPath, storageParam);
       setEntries(
         (data.entries ?? [])
           .slice()
@@ -130,8 +167,7 @@ export const FilesPage: Component = () => {
   };
 
   createEffect(() => {
-    void currentPath();
-    void currentStorage();
+    void virtualPath();
     loadList();
   });
 
@@ -151,21 +187,41 @@ export const FilesPage: Component = () => {
       return;
     }
     const file = chosenFile();
-    const target = uploadPath().trim() || (file ? joinPath(currentPath(), file.name) : '');
+    const target = uploadPath().trim() || (file ? joinPath(currentRealPath(), file.name) : '');
     if (!file || !target.startsWith('/')) {
       pushToast(t('fileSelectAndPath') as string, 'error');
       return;
     }
+    /* Space pre-check */
+    const currentDev = currentDevice();
+    if (currentDev && currentDev.mounted && currentDev.free_bytes >= 0 && file.size > currentDev.free_bytes) {
+      pushToast(
+        tf('storageSpaceExceeded', {
+          fileSize: humanSize(file.size),
+          freeSpace: humanSize(currentDev.free_bytes),
+        }),
+        'error',
+      );
+      return;
+    }
     try {
       const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
-      await uploadFile(target, file, storage);
+      setUploadProgress({ name: file.name, loaded: 0, total: file.size });
+      await uploadFile(target, file, {
+        storage,
+        onProgress: (loaded, total) =>
+          setUploadProgress((prev) => prev ? { ...prev, loaded, total } : prev),
+      });
+      setUploadProgress(null);
       setUploadPath('');
       setChosenFile(null);
       setFileChosenName(null);
       if (fileInputRef) fileInputRef.value = '';
       pushToast(t('fileUploadComplete') as string, 'success');
       await loadList();
+      await loadStorageDevices();
     } catch (err) {
+      setUploadProgress(null);
       pushToast((err as Error).message, 'error');
     }
   };
@@ -181,8 +237,13 @@ export const FilesPage: Component = () => {
       return;
     }
     try {
-      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
-      await createFolder(joinPath(currentPath(), name), { storage });
+      const storage = currentStorage();
+      if (!storage) {
+        pushToast(t('fileSelectStorage') as string, 'error');
+        return;
+      }
+      const storageParam = storage !== 'fatfs' ? storage : undefined;
+      await createFolder(joinPath(currentRealPath(), name), { storage: storageParam });
       setNewFolderName('');
       pushToast(t('fileFolderCreated') as string, 'success');
       await loadList();
@@ -198,8 +259,9 @@ export const FilesPage: Component = () => {
     }
     if (!window.confirm(tf('fileDeleteConfirm', { path: entry.path }))) return;
     try {
-      const storage = currentStorage() !== 'fatfs' ? currentStorage() : undefined;
-      await deletePath(entry.path, storage);
+      const storage = currentStorage();
+      const storageParam = storage && storage !== 'fatfs' ? storage : undefined;
+      await deletePath(entry.path, storageParam);
       pushToast(t('fileDeleteComplete') as string, 'success');
       await loadList();
     } catch (err) {
@@ -233,9 +295,16 @@ export const FilesPage: Component = () => {
     }
   };
 
+  /** Navigate into a subdirectory inside the current storage. */
+  const navigateIntoDir = (entry: FileEntry) => {
+    const storage = currentStorage();
+    if (!storage) return;
+    setVirtualPath('/' + storage + entry.path);
+  };
+
   const handleEntryActivate = async (entry: FileEntry) => {
     if (entry.is_dir) {
-      setCurrentPath(entry.path);
+      navigateIntoDir(entry);
       return;
     }
     if (!isEditable(entry.path)) {
@@ -251,7 +320,7 @@ export const FilesPage: Component = () => {
   };
 
   const openFolderFromAction = (entry: FileEntry) => {
-    setCurrentPath(entry.path);
+    navigateIntoDir(entry);
   };
 
   const reloadEditor = async () => {
@@ -298,20 +367,16 @@ export const FilesPage: Component = () => {
     setEditor(initialEditor);
   };
 
-  const goUp = () => setCurrentPath(parentOf(currentPath()));
+  const goUp = () => setVirtualPath(parentOf(virtualPath()));
 
-  const switchStorage = (id: string) => {
-    if (id !== currentStorage()) {
-      setCurrentStorage(id);
-      setCurrentPath('/');
-    }
+  const currentDevice = () => {
+    const storage = currentStorage();
+    return storage ? storageDevices().find((d) => d.id === storage) : undefined;
   };
-
-  const currentDevice = () => storageDevices().find((d) => d.id === currentStorage());
 
   const handleMount = async () => {
     try {
-      await mountStorage(currentStorage());
+      await mountStorage(currentStorage()!);
       await loadStorageDevices();
       await loadList();
       pushToast(t('storageMountOk') as string, 'success');
@@ -322,7 +387,7 @@ export const FilesPage: Component = () => {
 
   const handleUnmount = async () => {
     try {
-      await unmountStorage(currentStorage());
+      await unmountStorage(currentStorage()!);
       await loadStorageDevices();
       pushToast(t('storageUnmountOk') as string, 'success');
     } catch (err) {
@@ -333,7 +398,7 @@ export const FilesPage: Component = () => {
   const handleFormat = async () => {
     if (!window.confirm(t('storageFormatConfirm') as string)) return;
     try {
-      await formatStorage(currentStorage());
+      await formatStorage(currentStorage()!);
       await loadStorageDevices();
       await loadList();
       pushToast(t('storageFormatOk') as string, 'success');
@@ -348,20 +413,7 @@ export const FilesPage: Component = () => {
         title={t('navFiles') as string}
         actions={
           <div class="flex items-center gap-2 flex-wrap">
-            <select
-              class="h-9 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] text-[0.82rem] text-[var(--color-text-primary)]"
-              value={currentStorage()}
-              onChange={(e) => switchStorage(e.currentTarget.value)}
-            >
-              <For each={storageDevices()}>
-                {(dev) => (
-                  <option value={dev.id}>
-                    {dev.name} {dev.mounted ? '' : `(${t('storageNotMounted')})`}
-                  </option>
-                )}
-              </For>
-            </select>
-            <Show when={currentStorage() !== 'fatfs'}>
+            <Show when={currentStorage() === 'sdcard'}>
               <Show when={currentDevice()?.mounted} fallback={
                 <Button size="sm" variant="secondary" onClick={handleMount}>
                   {t('storageMount')}
@@ -374,6 +426,11 @@ export const FilesPage: Component = () => {
                   {t('storageFormat')}
                 </Button>
               </Show>
+            </Show>
+            <Show when={currentDevice()?.mounted && currentDevice()!.total_bytes > 0}>
+              <span class="inline-flex items-center h-9 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] text-[0.78rem] text-[var(--color-text-secondary)] whitespace-nowrap">
+                {t('storageFree')}: {humanSize(currentDevice()!.free_bytes)} / {humanSize(currentDevice()!.total_bytes)}
+              </span>
             </Show>
             <Button
               size="sm"
@@ -394,16 +451,44 @@ export const FilesPage: Component = () => {
           <Banner kind="error" message={error() ?? undefined} />
         </div>
       </Show>
-      <div class="px-5 pt-4 flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="secondary" onClick={goUp} disabled={currentPath() === '/'}>
+      {/* Breadcrumb navigation */}
+      <div class="px-5 pt-4 flex flex-wrap items-center gap-1.5">
+        <Button size="sm" variant="secondary" onClick={goUp} disabled={virtualPath() === '/'}>
           {t('fileUpDir')}
         </Button>
-        <code class="inline-flex items-center h-9 px-3 rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] text-[0.82rem] font-mono text-[var(--color-text-secondary)]">
-          {currentPath()}
-        </code>
+        <nav class="inline-flex items-center gap-1 flex-wrap" aria-label="Breadcrumb">
+          <button
+            type="button"
+            class="inline-flex items-center h-8 px-2.5 rounded-[var(--radius-sm)] text-[0.82rem] font-mono text-[var(--color-text-primary)] hover:bg-white/[0.05] transition-colors"
+            onClick={() => setVirtualPath('/')}
+          >
+            /
+          </button>
+          <Show when={virtualPath() !== '/'}>
+            <For each={pathSegments()}>
+              {(seg, i) => {
+                const segs = pathSegments();
+                const crumbPath = '/' + segs.slice(0, i() + 1).join('/');
+                const isLast = i() === segs.length - 1;
+                return (
+                  <>
+                    <ChevronRight class="h-3.5 w-3.5 text-[var(--color-text-muted)] shrink-0" />
+                    <button
+                      type="button"
+                      class={`inline-flex items-center h-8 px-2.5 rounded-[var(--radius-sm)] text-[0.82rem] font-mono transition-colors ${isLast ? 'text-[var(--color-primary,rgba(232,54,45,0.85))] font-semibold' : 'text-[var(--color-text-secondary)] hover:bg-white/[0.05]'}`}
+                      onClick={() => setVirtualPath(crumbPath)}
+                    >
+                      {seg}
+                    </button>
+                  </>
+                );
+              }}
+            </For>
+          </Show>
+        </nav>
       </div>
 
-      <Show when={devMode()}>
+      <Show when={devMode() && !isVirtualRoot()}>
         <div class="px-5 pt-3 flex flex-wrap gap-2 items-center">
           <input
             type="text"
@@ -434,7 +519,7 @@ export const FilesPage: Component = () => {
                 setChosenFile(file);
                 setFileChosenName(file?.name ?? null);
                 if (file) {
-                  setUploadPath(joinPath(currentPath(), file.name));
+                  setUploadPath(joinPath(currentRealPath(), file.name));
                 }
               }}
             />
@@ -445,14 +530,98 @@ export const FilesPage: Component = () => {
               {fileChosenName() ?? t('fileNoFileSelected')}
             </span>
           </div>
-          <Button size="sm" variant="primary" onClick={handleUpload}>
+          <Button size="sm" variant="primary" onClick={handleUpload} disabled={!!uploadProgress()}>
             {t('fileUpload')}
           </Button>
         </div>
+        <Show when={uploadProgress()}>
+          <div class="px-5 pt-2">
+            <div class="rounded-[var(--radius-sm)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] p-3">
+              <div class="flex items-center justify-between text-[0.82rem] text-[var(--color-text-secondary)] mb-1.5">
+                <span class="truncate mr-2">{uploadProgress()!.name}</span>
+                <span class="whitespace-nowrap">
+                  {humanSize(uploadProgress()!.loaded)} / {humanSize(uploadProgress()!.total)}
+                  {' ('}{uploadProgress()!.total > 0
+                    ? `${Math.round((uploadProgress()!.loaded / uploadProgress()!.total) * 100)}%`
+                    : '--'}{')'}
+                </span>
+              </div>
+              <div class="h-2 rounded-full bg-[var(--color-bg-input)] overflow-hidden">
+                <div
+                  class="h-full rounded-full bg-[var(--color-primary,rgba(232,54,45,0.85))] transition-[width] duration-150 ease-linear"
+                  style={{ width: `${uploadProgress()!.total > 0
+                    ? (uploadProgress()!.loaded / uploadProgress()!.total) * 100
+                    : 0}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </Show>
       </Show>
 
       <div class="p-5">
-        <div class="rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] overflow-hidden">
+        <Show
+          when={!isVirtualRoot()}
+          fallback={
+            /* Virtual root: show storage mount points */
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <For each={storageDevices()}>
+                {(dev) => {
+                  const devVirtualPath = '/' + dev.id;
+                  return (
+                    <button
+                      type="button"
+                      class="group flex items-start gap-4 p-5 rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] hover:border-[var(--color-primary,rgba(232,54,45,0.4))] transition-colors text-left"
+                      onClick={() => {
+                        if (dev.mounted) {
+                          setVirtualPath(devVirtualPath);
+                        }
+                      }}
+                      disabled={!dev.mounted}
+                    >
+                      <div class={`mt-0.5 flex items-center justify-center h-10 w-10 rounded-[var(--radius-sm)] shrink-0 ${dev.mounted ? 'bg-[rgba(232,54,45,0.08)] text-[var(--color-primary,rgba(232,54,45,0.85))]' : 'bg-[var(--color-bg-card)] text-[var(--color-text-secondary)]'}`}>
+                        <Show when={dev.id === 'sdcard'} fallback={<HardDrive class="h-5 w-5" />}>
+                          <Usb class="h-5 w-5" />
+                        </Show>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2">
+                          <span class="text-[0.92rem] font-medium text-[var(--color-text-primary)] truncate">
+                            {dev.name}
+                          </span>
+                          <Show when={!dev.mounted}>
+                            <span class="text-[0.72rem] px-1.5 py-0.5 rounded-[var(--radius-sm)] bg-[var(--color-bg-card)] text-[var(--color-text-muted)]">
+                              {t('storageNotMounted')}
+                            </span>
+                          </Show>
+                        </div>
+                        <code class="text-[0.78rem] text-[var(--color-text-muted)] font-mono">
+                          {devVirtualPath}
+                        </code>
+                        <Show when={dev.mounted && dev.total_bytes > 0}>
+                          <div class="mt-2">
+                            <div class="flex items-center justify-between text-[0.75rem] text-[var(--color-text-secondary)] mb-1">
+                              <span>{humanSize(dev.free_bytes)} {t('storageFree')}</span>
+                              <span>{humanSize(dev.total_bytes)}</span>
+                            </div>
+                            <div class="h-1.5 rounded-full bg-[var(--color-bg-input)] overflow-hidden">
+                              <div
+                                class="h-full rounded-full bg-[var(--color-primary,rgba(232,54,45,0.85))]"
+                                style={{ width: `${Math.max(0, Math.min(100, ((dev.total_bytes - dev.free_bytes) / dev.total_bytes) * 100))}%` }}
+                              />
+                            </div>
+                          </div>
+                        </Show>
+                      </div>
+                    </button>
+                  );
+                }}
+              </For>
+            </div>
+          }
+        >
+          {/* Normal file list inside a storage */}
+          <div class="rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] overflow-hidden">
           <table class="w-full">
             <thead>
               <tr class="bg-[var(--color-bg-card)]">
@@ -540,6 +709,7 @@ export const FilesPage: Component = () => {
             </tbody>
           </table>
         </div>
+        </Show>
       </div>
 
       <FileEditorModal

@@ -24,6 +24,7 @@ const [dirtyTabs, setDirtyTabs] = createSignal<Record<TabId, boolean>>({
   capabilities: false,
   skills: false,
   files: false,
+  mcp: false,
 });
 
 export function isDirty(tab: TabId) {

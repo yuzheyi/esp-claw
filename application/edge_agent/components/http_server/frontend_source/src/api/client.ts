@@ -277,14 +277,75 @@ export async function saveFileContent(path: string, content: string | Blob, stor
   );
 }
 
-export async function uploadFile(path: string, file: File, storage?: string) {
+export async function uploadFile(
+  path: string,
+  file: File,
+  storageOrOptions?: string | { storage?: string; onProgress?: (loaded: number, total: number) => void },
+) {
+  // Backward-compatible: third arg can be a plain storage string or an options object
+  let storage: string | undefined;
+  let onProgress: ((loaded: number, total: number) => void) | undefined;
+  if (typeof storageOrOptions === 'string') {
+    storage = storageOrOptions;
+  } else if (storageOrOptions) {
+    storage = storageOrOptions.storage;
+    onProgress = storageOrOptions.onProgress;
+  }
+
   let url = '/api/files/upload?path=' + encodeURIComponent(path);
   if (storage) url += '&storage=' + encodeURIComponent(storage);
-  return request<unknown>(
-    url,
-    { method: 'POST', body: file },
-    'Failed to upload file',
-  );
+
+  // Use XHR when progress callback is provided; fall back to fetch otherwise
+  if (!onProgress) {
+    return request<unknown>(
+      url,
+      { method: 'POST', body: file },
+      'Failed to upload file',
+    );
+  }
+
+  return new Promise<{ ok: boolean; error?: string }>((resolve) => {
+    const xhr = new XMLHttpRequest();
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        onProgress!(e.loaded, e.total);
+      }
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          resolve({ ok: true });
+        }
+      } else {
+        try {
+          const err = JSON.parse(xhr.responseText);
+          resolve({ ok: false, error: err.error || `HTTP ${xhr.status}` });
+        } catch {
+          resolve({ ok: false, error: `HTTP ${xhr.status}` });
+        }
+      }
+    });
+
+    xhr.addEventListener('error', () => {
+      resolve({ ok: false, error: 'Network error' });
+    });
+
+    xhr.addEventListener('abort', () => {
+      resolve({ ok: false, error: 'Upload cancelled' });
+    });
+
+    xhr.addEventListener('timeout', () => {
+      resolve({ ok: false, error: 'Upload timed out' });
+    });
+
+    xhr.open('POST', url);
+    xhr.timeout = 60000; // 60s timeout for large uploads
+    xhr.send(file);
+  });
 }
 
 export async function createFolder(

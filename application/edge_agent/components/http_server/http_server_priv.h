@@ -16,7 +16,7 @@
 #define HTTP_SERVER_CTRL_PORT         32769
 #define HTTP_SERVER_SCRATCH_SIZE      4096
 #define HTTP_SERVER_PATH_MAX          256
-#define HTTP_SERVER_UPLOAD_MAX_SIZE   (512 * 1024)
+#define HTTP_SERVER_UPLOAD_MAX_SIZE   (16 * 1024 * 1024)  // 16MB
 
 typedef struct {
     httpd_handle_t server;
@@ -39,6 +39,11 @@ esp_err_t http_server_send_json_response(httpd_req_t *req, cJSON *root);
 esp_err_t http_server_parse_json_body(httpd_req_t *req, cJSON **out_root);
 void http_server_json_read_string(cJSON *root, const char *key, char *buffer, size_t buffer_size);
 esp_err_t http_server_resolve_storage_path(const char *relative_path, char *full_path, size_t full_path_size);
+const char *http_server_get_storage_id(httpd_req_t *req);
+const char *http_server_get_mount_point(const char *storage_id);
+esp_err_t http_server_resolve_storage_path_ex(const char *relative_path,
+                                               const char *storage_id,
+                                               char *full_path, size_t size);
 bool http_server_build_child_relative_path(const char *base_path,
                                            const char *entry_name,
                                            char *out_path,

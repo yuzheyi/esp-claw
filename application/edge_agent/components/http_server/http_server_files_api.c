@@ -37,13 +37,14 @@ static int mkdir_parents(char *path, mode_t mode)
 
 static esp_err_t files_list_handler(httpd_req_t *req)
 {
+    const char *storage_id = http_server_get_storage_id(req);
     char relative_path[HTTP_SERVER_PATH_MAX] = "/";
     if (http_server_query_get(req, "path", relative_path, sizeof(relative_path)) != ESP_OK) {
         strlcpy(relative_path, "/", sizeof(relative_path));
     }
 
     char full_path[HTTP_SERVER_PATH_MAX];
-    if (http_server_resolve_storage_path(relative_path, full_path, sizeof(full_path)) != ESP_OK) {
+    if (http_server_resolve_storage_path_ex(relative_path, storage_id, full_path, sizeof(full_path)) != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
     }
 
@@ -74,7 +75,7 @@ static esp_err_t files_list_handler(httpd_req_t *req)
         char child_relative[HTTP_SERVER_PATH_MAX];
         char child_full[HTTP_SERVER_PATH_MAX];
         if (!http_server_build_child_relative_path(relative_path, entry->d_name, child_relative, sizeof(child_relative)) ||
-            http_server_resolve_storage_path(child_relative, child_full, sizeof(child_full)) != ESP_OK) {
+            http_server_resolve_storage_path_ex(child_relative, storage_id, child_full, sizeof(child_full)) != ESP_OK) {
             continue;
         }
 
@@ -101,13 +102,14 @@ static esp_err_t files_list_handler(httpd_req_t *req)
 
 static esp_err_t file_download_handler(httpd_req_t *req)
 {
+    const char *storage_id = http_server_get_storage_id(req);
     const char *relative_path = req->uri + strlen("/files");
     if (!http_server_path_is_safe(relative_path)) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
     }
 
     char full_path[HTTP_SERVER_PATH_MAX];
-    if (http_server_resolve_storage_path(relative_path, full_path, sizeof(full_path)) != ESP_OK) {
+    if (http_server_resolve_storage_path_ex(relative_path, storage_id, full_path, sizeof(full_path)) != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
     }
 
@@ -146,16 +148,18 @@ static esp_err_t file_download_handler(httpd_req_t *req)
 
 static esp_err_t files_upload_handler(httpd_req_t *req)
 {
+    const char *storage_id = http_server_get_storage_id(req);
     char relative_path[HTTP_SERVER_PATH_MAX] = {0};
     if (http_server_query_get(req, "path", relative_path, sizeof(relative_path)) != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing path");
     }
+    /* Note: chunked transfer-encoding not supported; content_len must be known upfront */
     if (req->content_len <= 0 || req->content_len > HTTP_SERVER_UPLOAD_MAX_SIZE) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid upload size");
     }
 
     char full_path[HTTP_SERVER_PATH_MAX];
-    if (http_server_resolve_storage_path(relative_path, full_path, sizeof(full_path)) != ESP_OK) {
+    if (http_server_resolve_storage_path_ex(relative_path, storage_id, full_path, sizeof(full_path)) != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
     }
 
@@ -207,13 +211,14 @@ static esp_err_t files_upload_handler(httpd_req_t *req)
 
 static esp_err_t files_delete_handler(httpd_req_t *req)
 {
+    const char *storage_id = http_server_get_storage_id(req);
     char relative_path[HTTP_SERVER_PATH_MAX] = {0};
     if (http_server_query_get(req, "path", relative_path, sizeof(relative_path)) != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing path");
     }
 
     char full_path[HTTP_SERVER_PATH_MAX];
-    if (http_server_resolve_storage_path(relative_path, full_path, sizeof(full_path)) != ESP_OK) {
+    if (http_server_resolve_storage_path_ex(relative_path, storage_id, full_path, sizeof(full_path)) != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
     }
 
@@ -234,6 +239,7 @@ static esp_err_t files_delete_handler(httpd_req_t *req)
 
 static esp_err_t files_mkdir_handler(httpd_req_t *req)
 {
+    const char *storage_id = http_server_get_storage_id(req);
     cJSON *root = NULL;
     if (http_server_parse_json_body(req, &root) != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON body");
@@ -249,7 +255,7 @@ static esp_err_t files_mkdir_handler(httpd_req_t *req)
     const bool mk_recursive = cJSON_IsBool(rec_item) && cJSON_IsTrue(rec_item);
 
     char full_path[HTTP_SERVER_PATH_MAX];
-    esp_err_t err = http_server_resolve_storage_path(path_item->valuestring, full_path, sizeof(full_path));
+    esp_err_t err = http_server_resolve_storage_path_ex(path_item->valuestring, storage_id, full_path, sizeof(full_path));
     cJSON_Delete(root);
     if (err != ESP_OK) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
@@ -270,6 +276,52 @@ static esp_err_t files_mkdir_handler(httpd_req_t *req)
     return httpd_resp_sendstr(req, "{\"ok\":true}");
 }
 
+/* GET /sdcard-files/... — SD card file download */
+static esp_err_t sdcard_file_download_handler(httpd_req_t *req)
+{
+    const char *relative_path = req->uri + strlen("/sdcard-files");
+    if (!http_server_path_is_safe(relative_path)) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
+    }
+
+    char full_path[HTTP_SERVER_PATH_MAX];
+    if (http_server_resolve_storage_path_ex(relative_path, "sdcard", full_path, sizeof(full_path)) != ESP_OK) {
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid path");
+    }
+
+    struct stat st = {0};
+    if (stat(full_path, &st) != 0 || S_ISDIR(st.st_mode)) {
+        return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    }
+
+    FILE *file = fopen(full_path, "rb");
+    if (!file) {
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open file");
+    }
+
+    char *scratch = http_server_alloc_scratch_buffer();
+    if (!scratch) {
+        fclose(file);
+        httpd_resp_send_500(req);
+        return ESP_ERR_NO_MEM;
+    }
+
+    httpd_resp_set_type(req, "application/octet-stream");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store, max-age=0");
+    while (!feof(file)) {
+        size_t read_bytes = fread(scratch, 1, HTTP_SERVER_SCRATCH_SIZE, file);
+        if (read_bytes > 0 && httpd_resp_send_chunk(req, scratch, read_bytes) != ESP_OK) {
+            free(scratch);
+            fclose(file);
+            return ESP_FAIL;
+        }
+    }
+
+    free(scratch);
+    fclose(file);
+    return httpd_resp_send_chunk(req, NULL, 0);
+}
+
 esp_err_t http_server_register_files_routes(httpd_handle_t server)
 {
     const httpd_uri_t handlers[] = {
@@ -278,6 +330,7 @@ esp_err_t http_server_register_files_routes(httpd_handle_t server)
         { .uri = "/api/files/upload", .method = HTTP_POST, .handler = files_upload_handler },
         { .uri = "/api/files/mkdir", .method = HTTP_POST, .handler = files_mkdir_handler },
         { .uri = "/files/*", .method = HTTP_GET, .handler = file_download_handler },
+        { .uri = "/sdcard-files/*", .method = HTTP_GET, .handler = sdcard_file_download_handler },
     };
 
     for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {

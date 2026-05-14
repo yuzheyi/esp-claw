@@ -135,3 +135,34 @@ bool http_server_build_child_relative_path(const char *base_path,
 
     return strlcat(out_path, entry_name, out_path_size) < out_path_size;
 }
+
+/* WARNING: Returns pointer to static buffer. Safe under ESP-IDF httpd single-task model,
+ * but NOT thread-safe for concurrent access. */
+const char *http_server_get_storage_id(httpd_req_t *req)
+{
+    static char val[32];
+    if (http_server_query_get(req, "storage", val, sizeof(val)) != ESP_OK) {
+        return NULL;
+    }
+    return val;
+}
+
+const char *http_server_get_mount_point(const char *storage_id)
+{
+    if (storage_id && strcmp(storage_id, "sdcard") == 0) {
+        return "/sdcard";
+    }
+    return http_server_ctx()->storage_base_path;
+}
+
+esp_err_t http_server_resolve_storage_path_ex(const char *relative_path,
+                                               const char *storage_id,
+                                               char *full_path, size_t size)
+{
+    if (!http_server_path_is_safe(relative_path)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const char *base = http_server_get_mount_point(storage_id);
+    int w = snprintf(full_path, size, "%s%s", base, relative_path);
+    return (w <= 0 || (size_t)w >= size) ? ESP_ERR_INVALID_SIZE : ESP_OK;
+}

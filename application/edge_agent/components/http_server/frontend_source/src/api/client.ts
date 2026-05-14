@@ -90,6 +90,10 @@ export type StatusInfo = {
   ap_ip: string;
   wifi_mode: string;
   storage_base_path: string;
+  fatfs_total_bytes?: number;
+  fatfs_free_bytes?: number;
+  sdcard_total_bytes?: number;
+  sdcard_free_bytes?: number;
 };
 
 export type CapabilityItem = {
@@ -222,9 +226,11 @@ export async function fetchLuaModules() {
   return Array.isArray(data.items) ? data.items : [];
 }
 
-export async function fetchFileList(path: string) {
+export async function fetchFileList(path: string, storage?: string) {
+  let url = '/api/files?path=' + encodeURIComponent(path);
+  if (storage && storage !== 'fatfs') url += '&storage=' + encodeURIComponent(storage);
   const data = await request<{ path: string; entries: FileEntry[] }>(
-    '/api/files?path=' + encodeURIComponent(path),
+    url,
     undefined,
     'Failed to load file list',
   );
@@ -233,9 +239,10 @@ export async function fetchFileList(path: string) {
 
 export async function fetchFileContent(
   path: string,
-  options: { allowMissing?: boolean } = {},
+  options: { allowMissing?: boolean; storage?: string } = {},
 ) {
-  const response = await fetch('/files' + path, { cache: 'no-store' });
+  const prefix = options.storage && options.storage !== 'fatfs' ? '/sdcard-files' : '/files';
+  const response = await fetch(prefix + path, { cache: 'no-store' });
   if (!response.ok) {
     if (options.allowMissing && response.status === 404) {
       return { content: '', missing: true };
@@ -245,36 +252,71 @@ export async function fetchFileContent(
   return { content: await response.text(), missing: false };
 }
 
-export async function saveFileContent(path: string, content: string | Blob) {
+export async function saveFileContent(path: string, content: string | Blob, storage?: string) {
   const body =
     content instanceof Blob
       ? content
       : new Blob([content], { type: 'text/plain; charset=utf-8' });
+  let url = '/api/files/upload?path=' + encodeURIComponent(path);
+  if (storage && storage !== 'fatfs') url += '&storage=' + encodeURIComponent(storage);
   return request<unknown>(
-    '/api/files/upload?path=' + encodeURIComponent(path),
+    url,
     { method: 'POST', body },
     'Failed to save file',
   );
 }
 
-export async function uploadFile(path: string, file: File) {
-  return request<unknown>(
-    '/api/files/upload?path=' + encodeURIComponent(path),
-    { method: 'POST', body: file },
-    'Failed to upload file',
-  );
+export async function uploadFile(
+  path: string,
+  file: File,
+  options?: { storage?: string; onProgress?: (loaded: number, total: number) => void },
+): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    let url = '/api/files/upload?path=' + encodeURIComponent(path);
+    const storage = options?.storage;
+    if (storage && storage !== 'fatfs') url += '&storage=' + encodeURIComponent(storage);
+
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable && options?.onProgress) {
+        options.onProgress(e.loaded, e.total);
+      }
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)); }
+        catch { resolve({ ok: false, error: `HTTP ${xhr.status}` }); }
+      } else {
+        try {
+          const parsed = JSON.parse(xhr.responseText);
+          resolve({ ok: false, error: parsed?.error || `HTTP ${xhr.status}` });
+        } catch { resolve({ ok: false, error: `HTTP ${xhr.status}` }); }
+      }
+    });
+
+    xhr.addEventListener('error', () => resolve({ ok: false, error: 'Network error' }));
+    xhr.timeout = 120000;
+
+    const fd = new FormData();
+    fd.append('file', file);
+    xhr.open('POST', url);
+    xhr.send(fd);
+  });
 }
 
 export async function createFolder(
   path: string,
-  options: { recursive?: boolean } = {},
+  options: { recursive?: boolean; storage?: string } = {},
 ) {
   const body: { path: string; recursive?: boolean } = { path };
   if (options.recursive) {
     body.recursive = true;
   }
+  let url = '/api/files/mkdir';
+  if (options.storage && options.storage !== 'fatfs') url += '?storage=' + encodeURIComponent(options.storage);
   return request<unknown>(
-    '/api/files/mkdir',
+    url,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -284,9 +326,11 @@ export async function createFolder(
   );
 }
 
-export async function deletePath(path: string) {
+export async function deletePath(path: string, storage?: string) {
+  let url = '/api/files?path=' + encodeURIComponent(path);
+  if (storage && storage !== 'fatfs') url += '&storage=' + encodeURIComponent(storage);
   return request<unknown>(
-    '/api/files?path=' + encodeURIComponent(path),
+    url,
     { method: 'DELETE' },
     'Failed to delete path',
   );

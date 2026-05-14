@@ -25,7 +25,41 @@ static const char *TAG = "cap_files";
 
 #define CAP_FILES_TRUNCATION_SUFFIX_RESERVE 96
 
-static char s_files_base_dir[128] = {0};
+#define CAP_FILES_MAX_ROOTS 4
+static char s_allowed_roots[CAP_FILES_MAX_ROOTS][128];
+static int  s_allowed_root_count = 0;
+
+/**
+ * Find which allowed root a path belongs to.
+ * Uses longest-prefix match so "/sdcard/skills" matches "/sdcard", not "/".
+ * Returns pointer to the matched root string, or NULL if none match.
+ */
+static const char *cap_files_find_root(const char *path)
+{
+    const char *best = NULL;
+    size_t best_len = 0;
+
+    for (int i = 0; i < s_allowed_root_count; i++) {
+        size_t root_len = strlen(s_allowed_roots[i]);
+        if (strncmp(path, s_allowed_roots[i], root_len) == 0) {
+            /* Must match a full path component: either path ends after root,
+             * or next char is '/' (e.g., "/sdcard/sub" matches "/sdcard",
+             * but "/sdcardx" does not) */
+            if (path[root_len] == '\0' || path[root_len] == '/') {
+                if (root_len > best_len) {
+                    best = s_allowed_roots[i];
+                    best_len = root_len;
+                }
+            }
+        }
+    }
+    return best;
+}
+
+static const char *cap_files_primary_root(void)
+{
+    return (s_allowed_root_count > 0) ? s_allowed_roots[0] : NULL;
+}
 
 static bool cap_files_text_contains_ci(const char *haystack, const char *needle)
 {
@@ -69,25 +103,14 @@ static bool cap_files_text_contains_ci(const char *haystack, const char *needle)
 
 static bool cap_files_path_is_valid(const char *path)
 {
-    size_t base_len;
-
     if (!path || !path[0]) {
         return false;
     }
-    if (s_files_base_dir[0] == '\0') {
-        return false;
-    }
-
     if (strstr(path, "..") != NULL) {
         return false;
     }
-
-    base_len = strlen(s_files_base_dir);
-    if (strncmp(path, s_files_base_dir, base_len) != 0) {
-        return false;
-    }
-
-    return path[base_len] == '\0' || path[base_len] == '/';
+    /* Path must be under at least one allowed root */
+    return cap_files_find_root(path) != NULL;
 }
 
 static esp_err_t cap_files_resolve_path(const char *path, char *resolved, size_t resolved_size)
@@ -97,7 +120,7 @@ static esp_err_t cap_files_resolve_path(const char *path, char *resolved, size_t
     if (!path || !path[0] || !resolved || resolved_size == 0) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (s_files_base_dir[0] == '\0') {
+    if (s_allowed_root_count == 0) {
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -115,7 +138,7 @@ static esp_err_t cap_files_resolve_path(const char *path, char *resolved, size_t
         return ESP_ERR_INVALID_ARG;
     }
 
-    written = snprintf(resolved, resolved_size, "%s/%s", s_files_base_dir, path);
+    written = snprintf(resolved, resolved_size, "%s/%s", cap_files_primary_root(), path);
     if (written < 0 || (size_t)written >= resolved_size) {
         ESP_LOGE(TAG, "path too long: %s", path);
         return ESP_ERR_INVALID_SIZE;
@@ -150,11 +173,18 @@ static esp_err_t cap_files_ensure_parent_dirs(const char *path)
     char dir[256];
     char *slash = NULL;
     char *cursor = NULL;
-    size_t base_len;
+    const char *root;
+    size_t root_len;
 
     if (!cap_files_path_is_valid(path)) {
         return ESP_ERR_INVALID_ARG;
     }
+
+    root = cap_files_find_root(path);
+    if (!root) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    root_len = strlen(root);
 
     strlcpy(dir, path, sizeof(dir));
     slash = strrchr(dir, '/');
@@ -162,17 +192,16 @@ static esp_err_t cap_files_ensure_parent_dirs(const char *path)
         return ESP_OK;
     }
 
-    base_len = strlen(s_files_base_dir);
-    if ((size_t)(slash - dir) <= base_len) {
-        return cap_files_ensure_dir(s_files_base_dir);
+    if ((size_t)(slash - dir) <= root_len) {
+        return cap_files_ensure_dir(root);
     }
     *slash = '\0';
 
-    if (cap_files_ensure_dir(s_files_base_dir) != ESP_OK) {
+    if (cap_files_ensure_dir(root) != ESP_OK) {
         return ESP_FAIL;
     }
 
-    cursor = dir + base_len + 1;
+    cursor = dir + root_len + 1;
     while (*cursor) {
         if (*cursor == '/') {
             *cursor = '\0';
@@ -350,7 +379,10 @@ static esp_err_t cap_files_read_file_execute(const char *input_json,
     path = cJSON_GetStringValue(cJSON_GetObjectItem(root, "path"));
     if (cap_files_resolve_path(path, resolved_path, sizeof(resolved_path)) != ESP_OK) {
         cJSON_Delete(root);
-        snprintf(output, output_size, "Error: path must stay under %s", s_files_base_dir);
+        {
+            const char *root = cap_files_primary_root();
+            snprintf(output, output_size, "Error: path must stay under %s", root ? root : "(unset)");
+        }
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -430,7 +462,8 @@ static esp_err_t cap_files_write_file_execute(const char *input_json,
     content = cJSON_GetStringValue(cJSON_GetObjectItem(root, "content"));
     if (cap_files_resolve_path(path, resolved_path, sizeof(resolved_path)) != ESP_OK) {
         cJSON_Delete(root);
-        snprintf(output, output_size, "Error: path must stay under %s", s_files_base_dir);
+        const char *root = cap_files_primary_root();
+        snprintf(output, output_size, "Error: path must stay under %s", root ? root : "(unset)");
         return ESP_ERR_INVALID_ARG;
     }
     if (!content) {
@@ -491,7 +524,8 @@ static esp_err_t cap_files_delete_file_execute(const char *input_json,
     path = cJSON_GetStringValue(cJSON_GetObjectItem(root, "path"));
     if (cap_files_resolve_path(path, resolved_path, sizeof(resolved_path)) != ESP_OK) {
         cJSON_Delete(root);
-        snprintf(output, output_size, "Error: path must stay under %s", s_files_base_dir);
+        const char *root = cap_files_primary_root();
+        snprintf(output, output_size, "Error: path must stay under %s", root ? root : "(unset)");
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -538,7 +572,8 @@ static esp_err_t cap_files_copy_file_execute(const char *input_json,
     if (cap_files_resolve_path(src_path, resolved_src_path, sizeof(resolved_src_path)) != ESP_OK
         || cap_files_resolve_path(dst_path, resolved_dst_path, sizeof(resolved_dst_path)) != ESP_OK) {
         cJSON_Delete(root);
-        snprintf(output, output_size, "Error: source and destination must stay under %s", s_files_base_dir);
+        const char *root = cap_files_primary_root();
+        snprintf(output, output_size, "Error: source and destination must stay under %s", root ? root : "(unset)");
         return ESP_ERR_INVALID_ARG;
     }
     if (strcmp(resolved_src_path, resolved_dst_path) == 0) {
@@ -587,7 +622,8 @@ static esp_err_t cap_files_move_file_execute(const char *input_json,
     if (cap_files_resolve_path(src_path, resolved_src_path, sizeof(resolved_src_path)) != ESP_OK
         || cap_files_resolve_path(dst_path, resolved_dst_path, sizeof(resolved_dst_path)) != ESP_OK) {
         cJSON_Delete(root);
-        snprintf(output, output_size, "Error: source and destination must stay under %s", s_files_base_dir);
+        const char *root = cap_files_primary_root();
+        snprintf(output, output_size, "Error: source and destination must stay under %s", root ? root : "(unset)");
         return ESP_ERR_INVALID_ARG;
     }
     if (strcmp(resolved_src_path, resolved_dst_path) == 0) {
@@ -644,7 +680,6 @@ static esp_err_t cap_files_list_dir_execute(const char *input_json,
     const char *keyword = NULL;
     size_t offset = 0;
     int count = 0;
-    esp_err_t err;
 
     (void)ctx;
 
@@ -654,19 +689,31 @@ static esp_err_t cap_files_list_dir_execute(const char *input_json,
         keyword = cJSON_GetStringValue(cJSON_GetObjectItem(root, "keyword"));
     }
 
-    if (cap_files_ensure_dir(s_files_base_dir) != ESP_OK) {
-        cJSON_Delete(root);
-        snprintf(output, output_size, "Error: cannot open %s", s_files_base_dir);
-        return ESP_FAIL;
+    if (keyword && keyword[0]) {
+        /* Try to match keyword as a path prefix under an allowed root */
+        const char *matched_root = cap_files_find_root(keyword);
+        if (matched_root) {
+            if (cap_files_ensure_dir(matched_root) == ESP_OK) {
+                cap_files_list_recursive(matched_root, keyword, output, output_size, &offset, &count);
+            }
+        } else {
+            /* keyword is not an allowed-root path — search across all roots */
+            for (int i = 0; i < s_allowed_root_count; i++) {
+                if (cap_files_ensure_dir(s_allowed_roots[i]) == ESP_OK) {
+                    cap_files_list_recursive(s_allowed_roots[i], keyword, output, output_size, &offset, &count);
+                }
+            }
+        }
+    } else {
+        /* No keyword: list all allowed roots */
+        for (int i = 0; i < s_allowed_root_count; i++) {
+            if (cap_files_ensure_dir(s_allowed_roots[i]) == ESP_OK) {
+                cap_files_list_recursive(s_allowed_roots[i], NULL, output, output_size, &offset, &count);
+            }
+        }
     }
 
-    err = cap_files_list_recursive(s_files_base_dir, keyword, output, output_size, &offset, &count);
     cJSON_Delete(root);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "list %s: err=0x%x", s_files_base_dir, err);
-        snprintf(output, output_size, "Error: failed to list files under %s", s_files_base_dir);
-        return err;
-    }
 
     if (count == 0) {
         snprintf(output, output_size, "(no files found)");
@@ -745,8 +792,8 @@ static const claw_cap_group_t s_files_group = {
 
 esp_err_t cap_files_register_group(void)
 {
-    if (s_files_base_dir[0] == '\0') {
-        ESP_LOGE(TAG, "base_dir not set");
+    if (s_allowed_root_count == 0) {
+        ESP_LOGE(TAG, "no allowed root configured");
         return ESP_ERR_INVALID_STATE;
     }
     if (claw_cap_group_exists(s_files_group.group_id)) {
@@ -763,6 +810,32 @@ esp_err_t cap_files_set_base_dir(const char *base_dir)
         return ESP_ERR_INVALID_ARG;
     }
 
-    strlcpy(s_files_base_dir, base_dir, sizeof(s_files_base_dir));
+    s_allowed_root_count = 0;
+    strlcpy(s_allowed_roots[0], base_dir, sizeof(s_allowed_roots[0]));
+    s_allowed_root_count = 1;
+    return ESP_OK;
+}
+
+esp_err_t cap_files_add_allowed_root(const char *root_path)
+{
+    if (!root_path || root_path[0] != '/') {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    /* Check for duplicates */
+    for (int i = 0; i < s_allowed_root_count; i++) {
+        if (strcmp(s_allowed_roots[i], root_path) == 0) {
+            return ESP_OK;  /* Already registered */
+        }
+    }
+
+    if (s_allowed_root_count >= CAP_FILES_MAX_ROOTS) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    strlcpy(s_allowed_roots[s_allowed_root_count], root_path, sizeof(s_allowed_roots[0]));
+    s_allowed_root_count++;
+
+    ESP_LOGI(TAG, "added allowed root: %s (total %d)", root_path, s_allowed_root_count);
     return ESP_OK;
 }

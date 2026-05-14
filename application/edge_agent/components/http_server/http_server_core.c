@@ -74,6 +74,8 @@ esp_err_t http_server_start(void)
     config.stack_size = 8192;
     config.max_open_sockets = 12;
     config.lru_purge_enable = true;
+    config.recv_wait_timeout = 30;   // SD 卡写入容忍延迟尖峰
+    config.send_wait_timeout = 15;
     config.close_fn = http_server_close_fn;
     config.uri_match_fn = httpd_uri_match_wildcard;
 

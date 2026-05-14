@@ -46,8 +46,8 @@ function isEditable(path: string): boolean {
   return EDITABLE_EXT.some((ext) => lower.endsWith(ext));
 }
 
-function downloadHref(path: string): string {
-  return '/files' + path;
+function downloadHref(path: string, storage: string): string {
+  return storage === 'sdcard' ? '/sdcard-files' + path : '/files' + path;
 }
 
 type EditorState = {
@@ -72,7 +72,10 @@ const initialEditor: EditorState = {
   readOnly: true,
 };
 
+type UploadProgress = { name: string; loaded: number; total: number };
+
 export const FilesPage: Component = () => {
+  const [storage, setStorage] = createSignal<'fatfs' | 'sdcard'>('fatfs');
   const [currentPath, setCurrentPath] = createSignal('/');
   const [entries, setEntries] = createSignal<FileEntry[]>([]);
   const [error, setError] = createSignal<string | null>(null);
@@ -81,10 +84,31 @@ export const FilesPage: Component = () => {
   const [uploadPath, setUploadPath] = createSignal('');
   const [fileChosenName, setFileChosenName] = createSignal<string | null>(null);
   const [newFolderName, setNewFolderName] = createSignal('');
+  const [uploadProgress, setUploadProgress] = createSignal<UploadProgress | null>(null);
   let fileInputRef: HTMLInputElement | undefined;
   const [chosenFile, setChosenFile] = createSignal<File | null>(null);
 
   const [editor, setEditor] = createSignal<EditorState>(initialEditor);
+
+  const [fatfsSpace, setFatfsSpace] = createSignal<{ total: number; free: number } | null>(null);
+  const [sdcardSpace, setSdcardSpace] = createSignal<{ total: number; free: number } | null>(null);
+
+  const loadSpaceInfo = async () => {
+    try {
+      const resp = await fetch('/api/status');
+      const data = await resp.json();
+      if (data.fatfs_total_bytes != null) {
+        setFatfsSpace({ total: data.fatfs_total_bytes, free: data.fatfs_free_bytes });
+      }
+      if (data.sdcard_total_bytes != null) {
+        setSdcardSpace({ total: data.sdcard_total_bytes, free: data.sdcard_free_bytes });
+      }
+    } catch { /* ignore */ }
+  };
+
+  createEffect(() => {
+    loadSpaceInfo();
+  });
 
   const dirtyEditor = () => editor().open && editor().content !== editor().baseline;
 
@@ -93,11 +117,13 @@ export const FilesPage: Component = () => {
   });
   onCleanup(() => markDirty('files', false));
 
+  const storageParam = () => storage() !== 'fatfs' ? storage() : undefined;
+
   const loadList = async () => {
     setError(null);
     setLoading(true);
     try {
-      const data = await fetchFileList(currentPath());
+      const data = await fetchFileList(currentPath(), storageParam());
       setCurrentPath(data.path || '/');
       setEntries(
         (data.entries ?? [])
@@ -113,6 +139,7 @@ export const FilesPage: Component = () => {
 
   createEffect(() => {
     void currentPath();
+    void storage();
     loadList();
   });
 
@@ -135,7 +162,14 @@ export const FilesPage: Component = () => {
       return;
     }
     try {
-      await uploadFile(target, file);
+      const result = await uploadFile(target, file, {
+        storage: storage(),
+        onProgress: (loaded, total) => setUploadProgress({ name: file.name, loaded, total }),
+      });
+      if (!result.ok) {
+        throw new Error(result.error || 'Upload failed');
+      }
+      setUploadProgress(null);
       setUploadPath('');
       setChosenFile(null);
       setFileChosenName(null);
@@ -143,6 +177,7 @@ export const FilesPage: Component = () => {
       pushToast(t('fileUploadComplete') as string, 'success');
       await loadList();
     } catch (err) {
+      setUploadProgress(null);
       pushToast((err as Error).message, 'error');
     }
   };
@@ -158,7 +193,7 @@ export const FilesPage: Component = () => {
       return;
     }
     try {
-      await createFolder(joinPath(currentPath(), name));
+      await createFolder(joinPath(currentPath(), name), { storage: storage() });
       setNewFolderName('');
       pushToast(t('fileFolderCreated') as string, 'success');
       await loadList();
@@ -174,7 +209,7 @@ export const FilesPage: Component = () => {
     }
     if (!window.confirm(tf('fileDeleteConfirm', { path: entry.path }))) return;
     try {
-      await deletePath(entry.path);
+      await deletePath(entry.path, storageParam());
       pushToast(t('fileDeleteComplete') as string, 'success');
       await loadList();
     } catch (err) {
@@ -191,7 +226,7 @@ export const FilesPage: Component = () => {
       readOnly: !devMode(),
     });
     try {
-      const { content } = await fetchFileContent(entry.path);
+      const { content } = await fetchFileContent(entry.path, { storage: storage() });
       setEditor((prev) => ({
         ...prev,
         content,
@@ -233,7 +268,7 @@ export const FilesPage: Component = () => {
     if (!state.path) return;
     setEditor({ ...state, loading: true, error: null });
     try {
-      const { content } = await fetchFileContent(state.path);
+      const { content } = await fetchFileContent(state.path, { storage: storage() });
       setEditor((prev) => ({
         ...prev,
         content,
@@ -254,7 +289,7 @@ export const FilesPage: Component = () => {
     }
     setEditor({ ...state, saving: true, error: null });
     try {
-      await saveFileContent(state.path, state.content);
+      await saveFileContent(state.path, state.content, storage());
       setEditor((prev) => ({ ...prev, baseline: prev.content, saving: false }));
       pushToast(t('fileEditorSaved') as string, 'success');
       await loadList();
@@ -292,6 +327,26 @@ export const FilesPage: Component = () => {
           </div>
         }
       />
+      <div class="px-5 pt-4 flex flex-wrap gap-2 items-center">
+        <Button size="sm" variant={storage() === 'fatfs' ? 'primary' : 'secondary'}
+          onClick={() => { setStorage('fatfs'); setCurrentPath('/'); }}>
+          📦 {t('fileInternalStorage')}
+        </Button>
+        <Show when={fatfsSpace()}>
+          <span class="text-xs text-gray-400">
+            {humanSize(fatfsSpace()!.free)} / {humanSize(fatfsSpace()!.total)}
+          </span>
+        </Show>
+        <Button size="sm" variant={storage() === 'sdcard' ? 'primary' : 'secondary'}
+          onClick={() => { setStorage('sdcard'); setCurrentPath('/'); }}>
+          💾 {t('fileSdCard')}
+        </Button>
+        <Show when={sdcardSpace()}>
+          <span class="text-xs text-gray-400">
+            {humanSize(sdcardSpace()!.free)} / {humanSize(sdcardSpace()!.total)}
+          </span>
+        </Show>
+      </div>
       <Show when={error()}>
         <div class="px-5 pt-4">
           <Banner kind="error" message={error() ?? undefined} />
@@ -353,6 +408,20 @@ export const FilesPage: Component = () => {
           </Button>
         </div>
       </Show>
+      <Show when={uploadProgress()}>
+        <div class="px-5 pt-2">
+          <div class="rounded border p-3">
+            <div class="flex justify-between text-xs mb-1.5">
+              <span>{uploadProgress()!.name}</span>
+              <span>{Math.round(uploadProgress()!.loaded / uploadProgress()!.total * 100)}%</span>
+            </div>
+            <div class="h-2 rounded-full bg-gray-200 overflow-hidden">
+              <div class="h-full rounded-full bg-blue-500 transition-[width]"
+                style={{ width: `${(uploadProgress()!.loaded / uploadProgress()!.total) * 100}%` }} />
+            </div>
+          </div>
+        </div>
+      </Show>
 
       <div class="p-5">
         <div class="rounded-[var(--radius-md)] border border-[var(--color-border-subtle)] bg-[var(--color-bg-surface)] overflow-hidden">
@@ -403,7 +472,7 @@ export const FilesPage: Component = () => {
                             when={entry.is_dir}
                             fallback={
                               <a
-                                href={downloadHref(entry.path)}
+                                href={downloadHref(entry.path, storage())}
                                 target="_blank"
                                 rel="noopener"
                                 class="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-white hover:bg-white/[0.05]"

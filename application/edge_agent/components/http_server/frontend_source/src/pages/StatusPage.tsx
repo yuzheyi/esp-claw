@@ -8,6 +8,12 @@ import { RestartConfirmModal } from '../components/system/RestartConfirmModal';
 import { appStatus, reloadStatus } from '../state/config';
 import { pushToast } from '../state/toast';
 
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
 const InfoRow: Component<{ label: string; value?: string; mono?: boolean }> = (props) => {
   const none = t('sysInfoNone') as string;
   return (
@@ -77,9 +83,21 @@ export const StatusPage: Component<{ onRestartRequest: () => void }> = (props) =
         <StaticConfigBlock title={t('sectionStatusStorage') as string}>
           <div class="grid gap-2 sm:grid-cols-2 pt-2">
             <InfoRow
-              label={t('sysInfoStorage') as string}
-              value={appStatus()?.storage_base_path}
+              label={t('sysInfoInternalStorage') as string}
+              value={
+                appStatus()?.fatfs_total_bytes != null
+                  ? `${appStatus()?.storage_base_path ?? ''} · ${humanSize(appStatus()!.fatfs_total_bytes! - appStatus()!.fatfs_free_bytes!)} / ${humanSize(appStatus()!.fatfs_total_bytes!)} (${t('sysInfoRemaining')} ${humanSize(appStatus()!.fatfs_free_bytes!)})`
+                  : '—'
+              }
               mono
+            />
+            <InfoRow
+              label={t('sysInfoSdCard') as string}
+              value={
+                appStatus()?.sdcard_total_bytes != null
+                  ? `${t('sysInfoSdMounted')} /sdcard · ${humanSize(appStatus()!.sdcard_total_bytes! - appStatus()!.sdcard_free_bytes!)} / ${humanSize(appStatus()!.sdcard_total_bytes!)} (${t('sysInfoRemaining')} ${humanSize(appStatus()!.sdcard_free_bytes!)})`
+                  : t('sysInfoSdNotFound')
+              }
             />
           </div>
         </StaticConfigBlock>

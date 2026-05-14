@@ -4,6 +4,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include "http_server_priv.h"
+#include "esp_vfs_fat.h"
+
+static void add_storage_info(cJSON *root, const char *label, const char *mount_point)
+{
+    uint64_t total = 0, free_space = 0;
+    if (esp_vfs_fat_info(mount_point, &total, &free_space) == ESP_OK) {
+        char key_total[64], key_free[64];
+        snprintf(key_total, sizeof(key_total), "%s_total_bytes", label);
+        snprintf(key_free, sizeof(key_free), "%s_free_bytes", label);
+        cJSON_AddNumberToObject(root, key_total, (double)total);
+        cJSON_AddNumberToObject(root, key_free, (double)free_space);
+    }
+}
 
 static esp_err_t status_handler(httpd_req_t *req)
 {
@@ -27,6 +40,10 @@ static esp_err_t status_handler(httpd_req_t *req)
     http_server_json_add_string(root, "ap_ssid", status.ap_ssid);
     http_server_json_add_string(root, "ap_ip", status.ap_ip);
     http_server_json_add_string(root, "wifi_mode", status.wifi_mode);
+
+    add_storage_info(root, "fatfs", ctx->storage_base_path);
+    add_storage_info(root, "sdcard", "/sdcard");
+
     return http_server_send_json_response(req, root);
 }
 

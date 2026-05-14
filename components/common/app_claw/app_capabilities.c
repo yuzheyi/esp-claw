@@ -235,7 +235,9 @@ static esp_err_t app_cap_prepare_files(const app_claw_config_t *config,
                                        const app_claw_storage_paths_t *paths)
 {
     (void)config;
-    return cap_files_set_base_dir(paths->fatfs_base_path);
+    cap_files_set_base_dir(paths->fatfs_base_path);
+    cap_files_add_allowed_root("/sdcard");
+    return ESP_OK;
 }
 
 static esp_err_t app_cap_register_files(const app_claw_config_t *config,

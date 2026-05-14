@@ -36,6 +36,7 @@ idf_component_register(
         cap_im_local
         claw_cap
         esp_http_server
+        fatfs
         heap
         json
 )

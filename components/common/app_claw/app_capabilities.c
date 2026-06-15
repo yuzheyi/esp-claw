@@ -64,6 +64,9 @@
 #if CONFIG_APP_CLAW_CAP_WEB_SEARCH
 #include "cap_web_search.h"
 #endif
+#if CONFIG_APP_CLAW_CAP_FOC_MOTOR
+#include "cap_foc_motor.h"
+#endif
 #include "claw_cap.h"
 #if CONFIG_APP_CLAW_CAP_MEMORY
 #include "claw_memory.h"
@@ -676,6 +679,16 @@ static esp_err_t app_cap_register_agent_mgr(const app_claw_config_t *config,
 }
 #endif
 
+#if CONFIG_APP_CLAW_CAP_FOC_MOTOR
+static esp_err_t app_cap_register_foc_motor(const app_claw_config_t *config,
+                                            const app_claw_storage_paths_t *paths)
+{
+    (void)config;
+    (void)paths;
+    return cap_foc_motor_register_group();
+}
+#endif
+
 static const app_capability_group_entry_t s_capability_group_entries[] = {
 #if CONFIG_APP_CLAW_CAP_AGENT_MGR
     { "cap_agent_mgr", "Agent Manager", "Register agent manager cap", true, NULL, app_cap_register_agent_mgr },
@@ -730,6 +743,9 @@ static const app_capability_group_entry_t s_capability_group_entries[] = {
 #endif
 #if CONFIG_APP_CLAW_CAP_SESSION_MGR
     { "cap_session_mgr", "Session Manager", "Register session manager cap", false, NULL, app_cap_register_session_mgr },
+#endif
+#if CONFIG_APP_CLAW_CAP_FOC_MOTOR
+    { "cap_foc_motor", "FOC Motor", "Register FOC motor control cap", true, NULL, app_cap_register_foc_motor },
 #endif
 };
 
@@ -787,6 +803,9 @@ static const app_capability_group_info_t s_capability_group_infos[] = {
 #endif
 #if CONFIG_APP_CLAW_CAP_SESSION_MGR
     { "cap_session_mgr", "Session Manager", false },
+#endif
+#if CONFIG_APP_CLAW_CAP_FOC_MOTOR
+    { "cap_foc_motor", "FOC Motor", true },
 #endif
 };
 

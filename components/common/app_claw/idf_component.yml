@@ -89,6 +89,9 @@ dependencies:
       - if: $CONFIG{APP_CLAW_CAP_WEB_SEARCH} == True
     path: ../../claw_capabilities/cap_web_search
 
+  cap_foc_motor:
+    path: ../../claw_capabilities/cap_foc_motor
+
   claw_cap:
     path: ../../claw_modules/claw_cap
 

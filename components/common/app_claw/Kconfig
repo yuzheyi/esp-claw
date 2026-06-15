@@ -192,6 +192,14 @@ menu "App Claw Config"
             help
                 Enable root-only subagent management tools backed by claw_agent_mgr.
 
+        config APP_CLAW_CAP_FOC_MOTOR
+            bool "Enable FOC motor control capability"
+            default n
+            help
+                Enable the FOC (Field-Oriented Control) motor driver capability.
+                Provides MCPWM 3-phase PWM generation and ADC current sampling
+                for brushless motor control. Requires esp_driver_mcpwm and esp_adc.
+
     endmenu
 
     menu "App Claw Lua Modules"

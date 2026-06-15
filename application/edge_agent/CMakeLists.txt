@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Force Ninja to use response files for compiler invocations.
+# On Windows, CreateProcess has a ~32KB command-line limit. Large ESP-IDF
+# projects with many components produce enough -I/-D flags to exceed it,
+# causing "ninja: fatal: CreateProcess: The parameter is incorrect."
+# See https://github.com/espressif/esp-idf/issues/18464
+set(CMAKE_NINJA_FORCE_RESPONSE_FILE ON)
+
 include("${CMAKE_SOURCE_DIR}/tools/cmake/esp_idf_patch.cmake")
 include("${CMAKE_SOURCE_DIR}/tools/cmake/flash_partition_defaults.cmake")
 

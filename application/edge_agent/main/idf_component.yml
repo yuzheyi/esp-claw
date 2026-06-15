@@ -21,6 +21,9 @@ dependencies:
   app_claw:
     path: ../../../components/common/app_claw
 
+  cap_foc_motor:
+    path: ../../../components/claw_capabilities/cap_foc_motor
+
   app_config:
     path: ../components/app_config
 

@@ -35,6 +35,9 @@ managed_components/
 Thumbs.db
 .venv/
 
+# Custom boards (user-specific)
+application/edge_agent/boards/yzy_board/
+
 .codex
 
 # Docs

@@ -82,6 +82,9 @@ CONFIG_BT_CTRL_BLE_SCAN_DUPL=n
 # See https://github.com/espressif/esp-claw/issues/101
 CONFIG_HTTP_REUSE_ENABLE=n
 
+# Enable FOC motor control
+CONFIG_APP_CLAW_CAP_FOC_MOTOR=y
+
 # Audio Decoder Configuration
 CONFIG_AUDIO_DECODER_AAC_SUPPORT=y
 CONFIG_AUDIO_DECODER_MP3_SUPPORT=y

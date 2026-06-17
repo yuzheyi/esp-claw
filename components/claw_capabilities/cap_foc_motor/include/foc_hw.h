@@ -14,6 +14,14 @@ extern "C" {
 #endif
 
 /**
+ * Encoder type.
+ */
+typedef enum {
+    FOC_ENCODER_NONE = 0,   /* No encoder (open-loop only) */
+    FOC_ENCODER_AS5600,     /* AS5600 I2C magnetic encoder */
+} foc_encoder_type_t;
+
+/**
  * FOC hardware configuration.
  */
 typedef struct {
@@ -35,6 +43,11 @@ typedef struct {
     float current_offset_mv;/* INA240 zero-current output (AVDD/2, default 1650.0) */
     float shunt_resistance; /* Current sense resistor (default 0.001 ohm) */
     float ina240_gain;      /* INA240 gain (default 20.0) */
+
+    /* Encoder */
+    foc_encoder_type_t encoder_type;    /* Encoder type (default NONE) */
+    uint8_t encoder_i2c_addr;           /* I2C address (AS5600 default 0x36) */
+    uint32_t encoder_i2c_freq_hz;       /* I2C clock speed (default 400000) */
 
     /* Control loop */
     uint32_t isr_stack_size;/* FOC ISR task stack size (default 4096) */
@@ -62,6 +75,9 @@ typedef struct foc_hw_t *foc_hw_handle_t;
     .current_offset_mv = 1650.0f, \
     .shunt_resistance = 0.001f, \
     .ina240_gain = 20.0f, \
+    .encoder_type = FOC_ENCODER_AS5600, \
+    .encoder_i2c_addr = 0x36, \
+    .encoder_i2c_freq_hz = 400000, \
     .isr_stack_size = 4096, \
     .isr_core_id = 1, \
 }
@@ -78,6 +94,13 @@ esp_err_t foc_hw_read_currents(foc_hw_handle_t hw, float *i_u_ma, float *i_v_ma)
 
 /* Enable/disable PWM output */
 esp_err_t foc_hw_enable(foc_hw_handle_t hw);
+esp_err_t foc_hw_disable(foc_hw_handle_t hw);
+
+/* Encoder: read mechanical angle in radians [0, 2π) */
+esp_err_t foc_hw_read_encoder(foc_hw_handle_t hw, float *angle_rad);
+
+/* Encoder: check if encoder is available */
+bool foc_hw_has_encoder(foc_hw_handle_t hw);
 esp_err_t foc_hw_disable(foc_hw_handle_t hw);
 
 #ifdef __cplusplus

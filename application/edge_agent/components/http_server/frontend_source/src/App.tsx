@@ -41,6 +41,7 @@ const WebImPage = lazy(() =>
 const SetupWizardPage = lazy(() =>
   import('./pages/SetupWizardPage').then((mod) => ({ default: mod.SetupWizardPage })),
 );
+const McpPage = lazy(() => import('./pages/McpPage').then((mod) => ({ default: mod.McpPage }));
 
 type RouteId = TabId | 'start';
 type RestartRequestOptions = {
@@ -264,6 +265,9 @@ const App: Component = () => {
                 <CapabilitiesPage
                   onRestartRequest={() => void handleRestartRequest({ reloadOnSuccess: true })}
                 />
+              </Show>
+              <Show when={currentTab() === 'mcp'}>
+                <McpPage />
               </Show>
               <Show when={currentTab() === 'skills'}>
                 <SkillsPage

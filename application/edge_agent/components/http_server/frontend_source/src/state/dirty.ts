@@ -11,7 +11,8 @@ export type TabId =
   | 'webim'
   | 'capabilities'
   | 'skills'
-  | 'files';
+  | 'files'
+  | 'mcp';
 
 const [dirtyTabs, setDirtyTabs] = createSignal<Record<TabId, boolean>>({
   status: false,
@@ -24,6 +25,7 @@ const [dirtyTabs, setDirtyTabs] = createSignal<Record<TabId, boolean>>({
   capabilities: false,
   skills: false,
   files: false,
+  mcp: false,
 });
 
 export function isDirty(tab: TabId) {

@@ -10,6 +10,7 @@ import {
   Settings,
   SquareFunction,
   WifiPen,
+  Plug,
 } from 'lucide-solid';
 import { createMemo, createSignal, For, Show, type Component } from 'solid-js';
 import { t } from '../../i18n';
@@ -29,6 +30,7 @@ const IconCaps: Component = () => <Blocks class={iconClass} />;
 const IconSkills: Component = () => <SquareFunction class={iconClass} />;
 const IconFiles: Component = () => <Folder class={iconClass} />;
 const IconWebIm: Component = () => <MessagesSquare class={iconClass} />;
+const IconMcp: Component = () => <Plug class={iconClass} />;
 
 export type LeafNode = {
   kind: 'leaf';
@@ -43,7 +45,8 @@ export type LeafNode = {
     | 'navCapabilities'
     | 'navLuaModules'
     | 'navFiles'
-    | 'navWebIm';
+    | 'navWebIm'
+    | 'navMcp';
   icon: Component;
 };
 export type GroupNode = {
@@ -72,8 +75,10 @@ export const NAV_TREE: NavNode[] = [
   { kind: 'leaf', id: 'memory', labelKey: 'navMemory', icon: IconMemory },
   { kind: 'leaf', id: 'webim', labelKey: 'navWebIm', icon: IconWebIm },
   { kind: 'leaf', id: 'capabilities', labelKey: 'navCapabilities', icon: IconCaps },
+  { kind: 'leaf', id: 'mcp', labelKey: 'navMcp', icon: IconMcp },
   { kind: 'leaf', id: 'skills', labelKey: 'navLuaModules', icon: IconSkills },
   { kind: 'leaf', id: 'files', labelKey: 'navFiles', icon: IconFiles },
+  { kind: 'leaf', id: 'mcp', labelKey: 'navMcp', icon: IconMcp },
 ];
 
 export const LEAF_IDS = collectLeafIds(NAV_TREE);

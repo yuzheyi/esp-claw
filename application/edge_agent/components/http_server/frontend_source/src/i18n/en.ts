@@ -25,6 +25,7 @@ export const en = {
   navLuaModules: 'Lua Modules',
   navFiles: 'Files',
   navWebIm: 'Web Chat',
+  navMcp: 'MCP Servers',
 
   webimDesc: 'Interact with ESP-Claw in real time via WebSocket.',
   webimSend: 'Send',

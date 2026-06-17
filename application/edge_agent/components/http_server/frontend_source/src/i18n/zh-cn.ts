@@ -27,6 +27,7 @@ export const zhCn: Dict = {
   navLuaModules: 'Lua 模块管理',
   navFiles: '文件管理',
   navWebIm: '在线聊天',
+  navMcp: 'MCP 服务器',
 
   webimDesc: '通过 WebSocket 与 ESP-Claw 实时互动。',
   webimSend: '发送',

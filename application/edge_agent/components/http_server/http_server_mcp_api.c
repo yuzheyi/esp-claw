@@ -73,18 +73,25 @@ static esp_err_t mcp_api_get_handler(httpd_req_t *req)
 
 static esp_err_t mcp_api_post_handler(httpd_req_t *req)
 {
-    char buf[HTTP_SERVER_SCRATCH_SIZE * 2];
-    int received = 0;
+    /* Read body into heap buffer — do NOT use large stack arrays in httpd handlers
+     * (default stack is only 4KB, 8KB array causes stack overflow → PC=0 crash) */
     int total = req->content_len;
-
-    if (total <= 0 || total >= (int)sizeof(buf)) {
+    if (total <= 0 || total > 4096) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid content length");
         return ESP_FAIL;
     }
 
+    char *buf = malloc((size_t)total + 1);
+    if (!buf) {
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Out of memory");
+        return ESP_FAIL;
+    }
+
+    int received = 0;
     while (received < total) {
         int ret = httpd_req_recv(req, buf + received, total - received);
         if (ret <= 0) {
+            free(buf);
             httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Recv failed");
             return ESP_FAIL;
         }
@@ -94,6 +101,7 @@ static esp_err_t mcp_api_post_handler(httpd_req_t *req)
 
     cJSON *body = cJSON_Parse(buf);
     if (!body) {
+        free(buf);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid JSON");
         return ESP_FAIL;
     }
@@ -142,6 +150,7 @@ static esp_err_t mcp_api_post_handler(httpd_req_t *req)
 
     mcp_server_config_free(&config);
     cJSON_Delete(body);
+    free(buf);
 
     if (err != ESP_OK) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, esp_err_to_name(err));

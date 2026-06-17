@@ -41,7 +41,9 @@ const WebImPage = lazy(() =>
 const SetupWizardPage = lazy(() =>
   import('./pages/SetupWizardPage').then((mod) => ({ default: mod.SetupWizardPage })),
 );
-const McpPage = lazy(() => import('./pages/McpPage').then((mod) => ({ default: mod.McpPage }));
+const McpPage = lazy(() =>
+  import('./pages/McpPage').then((mod) => ({ default: mod.McpPage })),
+);
 
 type RouteId = TabId | 'start';
 type RestartRequestOptions = {
